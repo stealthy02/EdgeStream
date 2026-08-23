@@ -1,0 +1,12 @@
+{
+  "image": "assets/regression/bus.jpg",
+  "thresholds": {"confidence": 0.25, "iou": 0.70},
+  "models": {
+    "reference": "artifacts/reference/bus_detections.jsonl",
+    "onnx": "artifacts/onnx/orangepi_dets.jsonl",
+    "rknn_fp16": "artifacts/rknn/orangepi_dets.jsonl",
+    "rknn_int8": "artifacts/rknn/orangepi_int8_dets.jsonl"
+  },
+  "onnx_comparison": "artifacts/onnx/comparison.json",
+  "notes": "FP16 and INT8 files are fixed-image outputs from the same bus.jpg input. Compare class, confidence and xyxy; INT8 is expected to show quantization error."
+}

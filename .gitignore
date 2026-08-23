@@ -1,0 +1,7 @@
+build/
+third_party/
+.vscode/
+docs/
+corrected_data/
+models/
+__pycache__/

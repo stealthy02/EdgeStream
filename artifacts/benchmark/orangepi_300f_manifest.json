@@ -1,0 +1,36 @@
+{
+  "frame_count": 300,
+  "input": {
+    "video": "assets/regression/input.mp4",
+    "shape": [1, 640, 640, 3],
+    "layout": "NHWC",
+    "pass_through": 1
+  },
+  "runs": [
+    {
+      "name": "rknn_fp16",
+      "model": "models/rknn/yolo11s_640_split.rknn",
+      "input_dtype": "float16",
+      "summary": "artifacts/rknn/orangepi_infer_stats.json",
+      "raw": "artifacts/rknn/orangepi_300f_raw.jsonl"
+    },
+    {
+      "name": "rknn_int8",
+      "model": "models/rknn/yolo11s_640_split_int8.rknn",
+      "input_dtype": "int8",
+      "quantization": {"scale": 0.00392157, "zero_point": -128},
+      "summary": null,
+      "raw": null,
+      "notes": "Run separately; the committed RKNN summary is the FP16 run."
+    },
+    {
+      "name": "onnx",
+      "model": "models/onnx/yolo11s_640_split.onnx",
+      "input_dtype": "float32",
+      "input_layout": "NCHW",
+      "summary": "artifacts/onnx/orangepi_infer_stats.json",
+      "raw": "artifacts/onnx/orangepi_300f_raw.jsonl"
+    }
+  ],
+  "device": "Orange Pi; exact board/SoC and runtime version must be recorded at rerun"
+}

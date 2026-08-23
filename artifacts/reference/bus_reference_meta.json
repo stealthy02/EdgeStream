@@ -1,0 +1,12 @@
+{
+  "model": "models/pytorch/yolo11s.pt",
+  "image": "assets/regression/bus.jpg",
+  "imgsz": 640,
+  "conf": 0.25,
+  "iou": 0.7,
+  "device": "cpu",
+  "detection_count": 5,
+  "python": "3.12.13",
+  "torch": "2.13.0+cu132",
+  "ultralytics": "8.4.110"
+}

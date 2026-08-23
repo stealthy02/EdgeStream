@@ -1,0 +1,51 @@
+{
+  "passed": true,
+  "reference_count": 5,
+  "actual_count": 5,
+  "unmatched_reference_indices": [],
+  "reference_class_counts": {
+    "bus": 1,
+    "person": 4
+  },
+  "actual_class_counts": {
+    "bus": 1,
+    "person": 4
+  },
+  "matches": [
+    {
+      "actual_index": 0,
+      "reference_index": 0,
+      "score_abs_error": 5.960464477539063e-08,
+      "box_max_abs_error": 0.0001068115234375,
+      "passed": true
+    },
+    {
+      "actual_index": 1,
+      "reference_index": 1,
+      "score_abs_error": 1.7881393432617188e-07,
+      "box_max_abs_error": 2.574920654296875e-05,
+      "passed": true
+    },
+    {
+      "actual_index": 2,
+      "reference_index": 2,
+      "score_abs_error": 5.960464477539063e-08,
+      "box_max_abs_error": 0.00014019012451171875,
+      "passed": true
+    },
+    {
+      "actual_index": 3,
+      "reference_index": 3,
+      "score_abs_error": 2.384185791015625e-07,
+      "box_max_abs_error": 3.0517578125e-05,
+      "passed": true
+    },
+    {
+      "actual_index": 4,
+      "reference_index": 4,
+      "score_abs_error": 7.748603820800781e-07,
+      "box_max_abs_error": 0.00011444091796875,
+      "passed": true
+    }
+  ]
+}
