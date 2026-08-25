@@ -8,6 +8,8 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <csignal>
+
 #include "rknn_engine.hpp"
 #include "preprocess.h"
 #include "postprocess.h"
@@ -16,22 +18,34 @@
 #include <sys/stat.h>
 #include <nlohmann/json.hpp>
 
+using json = nlohmann::json;
+
+volatile std::sig_atomic_t g_stop_requested = 0;
+
 ThreadSafeQueue<cv::Mat> inference_queue(5);
 PreprocessParameter preprocess_parameter;
 int tensor_data_size;
-void preprocess_thread(cv::VideoCapture& cap){
+
+void sigint_handler(int /*sig*/)
+{
+    g_stop_requested = 1;
+}
+
+void preprocess_thread(cv::VideoCapture& cap)
+{
     if (!cap.isOpened()) {
-        std::cerr << "Failed to open video." << std::endl;
+        inference_queue.stop();
         return;
     }
     cv::Mat frame;
-    while(cap.read(frame)){
-        if (frame.empty()) continue;
+    while (g_stop_requested == 0 && cap.read(frame))
+    {
+        if (frame.empty())
+            continue;
         inference_queue.push(frame);
     }
     inference_queue.stop();
 }
-using json = nlohmann::json;
 
 double calc_std(const std::vector<double>& data, double mean)
 {
@@ -43,6 +57,7 @@ double calc_std(const std::vector<double>& data, double mean)
     }
     return std::sqrt(sum_sq / (data.size() - 1));
 }
+
 bool mkdir_if_not_exist(const std::string& dir)
 {
     struct stat st;
@@ -51,12 +66,13 @@ bool mkdir_if_not_exist(const std::string& dir)
     }
     return mkdir(dir.c_str(), 0755) == 0;
 }
-void inference_thread(RknnEngine& rknn_engine){
 
+void inference_thread(RknnEngine& rknn_engine){
     cv::Mat frame;
     std::vector<int8_t> tensor_data(tensor_data_size);
     std::vector<float> output_data;
     const auto& out_attr = rknn_engine.get_output_attr(0);
+
     uint32_t field_count = 0;
     uint32_t candidate_count = 0;
     if (rknn_engine.get_output_num() == 2)
@@ -98,7 +114,6 @@ void inference_thread(RknnEngine& rknn_engine){
         return;
     }
 
-    // ========== 保存每帧耗时数组（用于标准差计算） ==========
     std::vector<double> prep_list;
     std::vector<double> infer_list;
     std::vector<double> post_list;
@@ -109,16 +124,16 @@ void inference_thread(RknnEngine& rknn_engine){
     double total_post = 0.0;
     int frame_cnt = 0;
 
-    while (inference_queue.pop(frame)) {
+    while (inference_queue.pop(frame))
+    {
         frame_cnt++;
-        // ========== 1. 前处理 preprocess_image ==========
         auto t0 = std::chrono::high_resolution_clock::now();
         preprocess_image(frame, preprocess_parameter, tensor_data, TENSOR_NHWC);
         auto t1 = std::chrono::high_resolution_clock::now();
-        // ========== 2. 推理 inference_engine.run ==========
+
         rknn_engine.run(tensor_data.data(), output_data);
         auto t2 = std::chrono::high_resolution_clock::now();
-        // ========== 3. 后处理 ==========
+
         auto detections_original = postprocess_image(
             output_data.data(),
             static_cast<int>(field_count),
@@ -129,10 +144,9 @@ void inference_thread(RknnEngine& rknn_engine){
         );
         auto t3 = std::chrono::high_resolution_clock::now();
 
-        // 转毫秒
-        double prep_ms   = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        double infer_ms  = std::chrono::duration<double, std::milli>(t2 - t1).count();
-        double post_ms   = std::chrono::duration<double, std::milli>(t3 - t2).count();
+        double prep_ms    = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        double infer_ms   = std::chrono::duration<double, std::milli>(t2 - t1).count();
+        double post_ms    = std::chrono::duration<double, std::milli>(t3 - t2).count();
         double frame_total_ms = prep_ms + infer_ms + post_ms;
 
         total_prep += prep_ms;
@@ -145,8 +159,23 @@ void inference_thread(RknnEngine& rknn_engine){
         total_list.push_back(frame_total_ms);
     }
 
-    // 退出循环后统计并写入JSON
+    // 正常跑完 / Ctrl+C触发优雅停止，排空队列后都会进入统计保存json
     if(frame_cnt > 0){
+        const std::string raw_path = "artifacts/rknn/orangepi_int8_300f_raw.jsonl";
+        mkdir_if_not_exist("artifacts/rknn");
+        std::ofstream raw(raw_path);
+        if (!raw.is_open()) {
+            std::cerr << "\n❌ Failed to write raw timings to " << raw_path << std::endl;
+        } else {
+            for (std::size_t i = 0; i < total_list.size(); ++i) {
+                json sample{{"frame", i + 1}, {"preprocess_ms", prep_list[i]},
+                            {"infer_ms", infer_list[i]}, {"postprocess_ms", post_list[i]},
+                            {"frame_total_ms", total_list[i]}};
+                raw << sample.dump() << '\n';
+            }
+            std::cout << "Raw timings saved to: " << raw_path << std::endl;
+        }
+
         double avg_prep  = total_prep / frame_cnt;
         double avg_infer = total_infer / frame_cnt;
         double avg_post  = total_post / frame_cnt;
@@ -166,7 +195,6 @@ void inference_thread(RknnEngine& rknn_engine){
                   << "Avg FrameTotal: " << avg_total << " ms | Std FrameTotal: " << std_total << " ms"
                   << std::endl;
 
-        // ========== 输出JSON到 artifacts/onnx/infer_stats.json ==========
         const std::string out_dir = "artifacts/rknn";
         const std::string json_path = out_dir + "/orangepi_int8_infer_stats.json";
         mkdir_if_not_exist(out_dir);
@@ -189,26 +217,32 @@ void inference_thread(RknnEngine& rknn_engine){
 
         std::ofstream f(json_path);
         if(f.is_open()){
-            f << stats.dump(4); // 4空格格式化，方便阅读
+            f << stats.dump(4);
             f.close();
             std::cout << "\n✅ Stats json saved to: " << json_path << std::endl;
         }else{
             std::cerr << "\n❌ Failed to write json to " << json_path << std::endl;
         }
+    } else {
+        std::cout << "\n[WARN] No frame processed, skip save json" << std::endl;
     }
 }
 
+int main(int argc, char* argv[])
+{
+    // 注册 SIGINT 信号处理器
+    signal(SIGINT, sigint_handler);
 
-int main(int argc, char* argv[]){
-    const std::string model_path = (argc == 1) 
-    ? "models/rknn/yolo11s_640_split.rknn" 
+    const std::string model_path = (argc == 1)
+    ? "models/rknn/yolo11s_640_split_int8.rknn"
     : argv[1];
-    // 初始化, 当前已经封装了, 就是构建session
+
     std::string video_path = "assets/regression/input.mp4";
     cv::VideoCapture cap(video_path);
     RknnEngine rknn_engine;
     rknn_engine.init(model_path);
     rknn_engine.input_setting(RKNN_TENSOR_INT8);
+
     const auto& in_attr = rknn_engine.get_input_attr(0);
     uint32_t model_in_h = 0;
     uint32_t model_in_w = 0;
@@ -231,15 +265,19 @@ int main(int argc, char* argv[]){
         std::cerr << "不支持的输入排布 fmt=" << in_attr.fmt << std::endl;
         return -1;
     }
+
     int width  = cap.get(cv::CAP_PROP_FRAME_WIDTH);
     int height = cap.get(cv::CAP_PROP_FRAME_HEIGHT);
     preprocess_parameter = get_preprocess_parameter(width,height, model_in_w, model_in_h);
     tensor_data_size = channel * model_in_h * model_in_w;
+
     std::thread t1(preprocess_thread,std::ref(cap));
     std::thread t2(inference_thread,std::ref(rknn_engine));
+
     t1.join();
     t2.join();
 
+    cap.release();
+    std::cout << "\n[INFO] Program exit gracefully" << std::endl;
     return 0;
 }
- 

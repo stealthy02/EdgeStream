@@ -11,7 +11,10 @@ public:
 
     void push(T item) {
         std::unique_lock<std::mutex> lock(mtx_);
-        cv_not_full_.wait(lock, [this] { return queue_.size() < max_size_; });
+        cv_not_full_.wait(lock, [this] { return queue_.size() < max_size_ || is_stopped_; });
+        if (is_stopped_) {
+            return ;
+        }
         queue_.push(item);
         cv_not_empty_.notify_one();
     }

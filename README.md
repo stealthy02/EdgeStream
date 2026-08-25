@@ -10,7 +10,7 @@ EdgeStream 是一个面向 RKNN 设备的 YOLO11 推理工程，包含 C++ 推�
 - [模型、输入和设备清单](artifacts/model_manifest.json)
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DEDGESTREAM_REQUIRE_RKNN=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 ```
 
@@ -28,10 +28,12 @@ cmake --build build -j"$(nproc)"
 ```bash
 ./build/onnx_video_test models/onnx/yolo11s_640_split.onnx
 ./build/rknn_video_test models/rknn/yolo11s_640_split.rknn
-./build/rknn_video_test models/rknn/yolo11s_640_split_int8.rknn
+./build/rknn_int8_video_test models/rknn/yolo11s_640_split_int8.rknn
 ```
 
 结果保存到 `artifacts/onnx/` 或 `artifacts/rknn/`，包括摘要和逐帧 JSONL。固定图结果对照见 [fixed_image_comparison.json](artifacts/reference/fixed_image_comparison.json)，benchmark 清单见 [orangepi_300f_manifest.json](artifacts/benchmark/orangepi_300f_manifest.json)。
+
+300 帧 FP16/INT8 性能分析见 [performance_analysis.md](artifacts/benchmark/performance_analysis.md)。
 
 ## Python 模型流水线
 

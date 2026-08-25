@@ -8,6 +8,7 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <csignal>
 #include "rknn_engine.hpp"
 #include "preprocess.h"
 #include "postprocess.h"
@@ -16,16 +17,27 @@
 #include <sys/stat.h>
 #include <nlohmann/json.hpp>
 
+using json = nlohmann::json;
+
+volatile std::sig_atomic_t g_stop_requested = 0;
+
+void sigint_handler(int /*sig*/)
+{
+    g_stop_requested = 1;
+}
+
+
 ThreadSafeQueue<cv::Mat> inference_queue(5);
 PreprocessParameter preprocess_parameter;
 int tensor_data_size;
 void preprocess_thread(cv::VideoCapture& cap){
     if (!cap.isOpened()) {
         std::cerr << "Failed to open video." << std::endl;
+        inference_queue.stop();
         return;
     }
     cv::Mat frame;
-    while(cap.read(frame)){
+    while (g_stop_requested == 0 && cap.read(frame)){
         if (frame.empty()) continue;
         inference_queue.push(frame);
     }
@@ -210,8 +222,9 @@ void inference_thread(RknnEngine& rknn_engine){
 
 
 int main(int argc, char* argv[]){
-    const std::string model_path = (argc == 1) 
-    ? "models/rknn/yolo11s_640.rknn" 
+    signal(SIGINT, sigint_handler);
+    const std::string model_path = (argc == 1)
+    ? "models/rknn/yolo11s_640_split.rknn"
     : argv[1];
     // 初始化, 当前已经封装了, 就是构建session
     std::string video_path = "assets/regression/input.mp4";
@@ -250,5 +263,7 @@ int main(int argc, char* argv[]){
     t1.join();
     t2.join();
 
+    cap.release();
+    std::cout << "\n[INFO] Program exit gracefully" << std::endl;
     return 0;
 }
