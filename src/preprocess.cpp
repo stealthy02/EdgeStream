@@ -3,6 +3,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <stdexcept>
 #include <vector>
 
@@ -302,33 +303,57 @@ void preprocess_image(
     const cv::Mat& bgr_image,
     const PreprocessParameter& preprocess_parameter,
     std::vector<int8_t>& out_tensor_data,
-    Tensor_format tensor_format)
+    Tensor_format tensor_format,
+    PreprocessTiming* timing)
 {
+    using clock = std::chrono::steady_clock;
+    const auto now_if_timed = [timing]() {
+        return timing != nullptr ? clock::now() : clock::time_point{};
+    };
+    const auto total_begin = now_if_timed();
+    if (timing != nullptr) {
+        *timing = {};
+    }
     if(bgr_image.empty()){
         throw std::runtime_error("Image is empty.");
     }
     cv::Mat resized_image;
     int resized_width = std::round(bgr_image.cols * preprocess_parameter.scale);
     int resized_height = std::round(bgr_image.rows * preprocess_parameter.scale);
+    auto stage_begin = now_if_timed();
     cv::resize(bgr_image,resized_image,cv::Size(resized_width, resized_height));
+    if (timing != nullptr) {
+        timing->resize_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+    }
 
     cv::Mat fulled_image;
+    stage_begin = now_if_timed();
     cv::copyMakeBorder(resized_image, fulled_image,
                        preprocess_parameter.pad_top, preprocess_parameter.pad_bottom,
                        preprocess_parameter.pad_left, preprocess_parameter.pad_right,
                        cv::BORDER_CONSTANT, cv::Scalar(114,114,114));
+    if (timing != nullptr) {
+        timing->padding_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+    }
 
-    int w = fulled_image.cols;
-    int h = fulled_image.rows;
+    stage_begin = now_if_timed();
     switch (tensor_format)
     {
     case TENSOR_NCHW:
-        convert_NCHW(fulled_image, w, h, out_tensor_data);
+        convert_NCHW(fulled_image, fulled_image.cols, fulled_image.rows, out_tensor_data);
         break;
     case TENSOR_NHWC:
-        convert_NHWC(fulled_image, w, h, out_tensor_data);
+        convert_NHWC(fulled_image, fulled_image.cols, fulled_image.rows, out_tensor_data);
         break;
     default:
         break;
+    }
+    if (timing != nullptr) {
+        timing->pack_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+        timing->total_us = std::chrono::duration<double, std::micro>(
+            clock::now() - total_begin).count();
     }
 }

@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstring>
 #include <cstdio>
+#include <chrono>
 
 RknnEngine::RknnEngine() : ctx_(0), is_initialized_(false)
 {
@@ -163,8 +164,20 @@ int RknnEngine::input_setting(rknn_tensor_type type){
 
 }
 
-int RknnEngine::run(void* input_data, std::vector<float>& output_data)
+int RknnEngine::run(
+    void* input_data,
+    std::vector<float>& output_data,
+    RknnRunTiming* timing)
 {
+    using clock = std::chrono::steady_clock;
+    const auto now_if_timed = [timing]() {
+        return timing != nullptr ? clock::now() : clock::time_point{};
+    };
+    const auto total_begin = now_if_timed();
+    if (timing != nullptr) {
+        *timing = {};
+    }
+
     if (!is_initialized_)
     {
         printf("引擎未初始化!\n");
@@ -181,24 +194,44 @@ int RknnEngine::run(void* input_data, std::vector<float>& output_data)
         return -1;
     }
 
-    // 拷贝输入数据到第0路输入buffer（单输入模型）
+    // This is the explicit staging copy in the current rknn_inputs_set path.
+    auto stage_begin = now_if_timed();
     memcpy(input_list_[0].buf, input_data, input_list_[0].size);
+    if (timing != nullptr) {
+        timing->input_copy_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+    }
 
+    stage_begin = now_if_timed();
     int ret = rknn_inputs_set(ctx_, io_num_.n_input, input_list_.data());
+    if (timing != nullptr) {
+        timing->inputs_set_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+    }
     if (ret < 0)
     {
         printf("rknn_inputs_set 失败! ret=%d\n", ret);
         return ret;
     }
 
+    stage_begin = now_if_timed();
     ret = rknn_run(ctx_, nullptr);
+    if (timing != nullptr) {
+        timing->run_call_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+    }
     if (ret < 0)
     {
         printf("rknn_run 失败! ret=%d\n", ret);
         return ret;
     }
 
+    stage_begin = now_if_timed();
     ret = rknn_outputs_get(ctx_, io_num_.n_output, output_list_.data(), nullptr);
+    if (timing != nullptr) {
+        timing->outputs_get_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+    }
     if (ret != RKNN_SUCC)
     {
         printf("rknn_outputs_get fail! ret=%d\n", ret);
@@ -207,6 +240,7 @@ int RknnEngine::run(void* input_data, std::vector<float>& output_data)
 
     // 兼容原始单输出和 split ONNX 的双输出：按输出顺序拼接成
     // [xywh(4), class_scores(80)]，这样现有 YOLO 后处理无需改变。
+    stage_begin = now_if_timed();
     output_data.clear();
     for (uint32_t i = 0; i < io_num_.n_output; ++i)
     {
@@ -214,8 +248,19 @@ int RknnEngine::run(void* input_data, std::vector<float>& output_data)
         const float* out_ptr = static_cast<const float*>(output_list_[i].buf);
         output_data.insert(output_data.end(), out_ptr, out_ptr + elem_count);
     }
+    if (timing != nullptr) {
+        timing->output_pack_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+    }
 
+    stage_begin = now_if_timed();
     rknn_outputs_release(ctx_, io_num_.n_output, output_list_.data());
+    if (timing != nullptr) {
+        timing->outputs_release_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+        timing->total_us = std::chrono::duration<double, std::micro>(
+            clock::now() - total_begin).count();
+    }
     return 0;
 }
 

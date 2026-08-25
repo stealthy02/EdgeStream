@@ -18,6 +18,13 @@ struct PreprocessParameter {
     int pad_bottom{};
 };
 
+struct PreprocessTiming {
+    double resize_us = 0.0;
+    double padding_us = 0.0;
+    double pack_us = 0.0;
+    double total_us = 0.0;
+};
+
 PreprocessParameter get_preprocess_parameter(
     int original_width,
     int original_height,
@@ -42,5 +49,6 @@ void preprocess_image(
     const cv::Mat& bgr_image,
     const PreprocessParameter& preprocess_parameter,
     std::vector<int8_t>& out_tensor_data,
-    Tensor_format tensor_format
+    Tensor_format tensor_format,
+    PreprocessTiming* timing = nullptr
 );
