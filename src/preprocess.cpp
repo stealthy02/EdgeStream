@@ -183,12 +183,32 @@ static void convert_NHWC(
     std::vector<int8_t>& tensor_data)
 {
     for (int y = 0; y < input_height; ++y) {
+        // 获取当前行的输入指针
+        const cv::Vec3b* src = fulled_image.ptr<cv::Vec3b>(y);
+        // 获取当前行的输出起始指针
+        int8_t* dst = tensor_data.data() + y * input_width * 3;
+        for (int x = 0; x < input_width; ++x) {
+            dst[0] = static_cast<int8_t>(static_cast<int>(src[x][2]) - 128);
+            dst[1] = static_cast<int8_t>(static_cast<int>(src[x][1]) - 128);
+            dst[2] = static_cast<int8_t>(static_cast<int>(src[x][0]) - 128);
+            dst += 3;
+        }
+    }
+}
+
+static void convert_NHWC_legacy(
+    const cv::Mat& fulled_image,
+    int input_width,
+    int input_height,
+    std::vector<int8_t>& tensor_data)
+{
+    for (int y = 0; y < input_height; ++y) {
         for (int x = 0; x < input_width; ++x) {
             cv::Vec3b pixel = fulled_image.at<cv::Vec3b>(y, x);
             const int r = pixel[2];
             const int g = pixel[1];
             const int b = pixel[0];
-            
+
             const int index = y * input_width + x;
             tensor_data[index * 3 + 0] = int_to_int8(r);
             tensor_data[index * 3 + 1] = int_to_int8(g);
@@ -304,7 +324,8 @@ void preprocess_image(
     const PreprocessParameter& preprocess_parameter,
     std::vector<int8_t>& out_tensor_data,
     Tensor_format tensor_format,
-    PreprocessTiming* timing)
+    PreprocessTiming* timing,
+    Int8PackMode pack_mode)
 {
     using clock = std::chrono::steady_clock;
     const auto now_if_timed = [timing]() {
@@ -345,7 +366,13 @@ void preprocess_image(
         convert_NCHW(fulled_image, fulled_image.cols, fulled_image.rows, out_tensor_data);
         break;
     case TENSOR_NHWC:
-        convert_NHWC(fulled_image, fulled_image.cols, fulled_image.rows, out_tensor_data);
+        if (pack_mode == Int8PackMode::Legacy) {
+            convert_NHWC_legacy(
+                fulled_image, fulled_image.cols, fulled_image.rows, out_tensor_data);
+        } else {
+            convert_NHWC(
+                fulled_image, fulled_image.cols, fulled_image.rows, out_tensor_data);
+        }
         break;
     default:
         break;

@@ -8,6 +8,11 @@ enum Tensor_format{
     TENSOR_NHWC
 };
 
+enum class Int8PackMode {
+    Optimized,
+    Legacy
+};
+
 struct PreprocessParameter {
     int original_width{};
     int original_height{};
@@ -50,5 +55,6 @@ void preprocess_image(
     const PreprocessParameter& preprocess_parameter,
     std::vector<int8_t>& out_tensor_data,
     Tensor_format tensor_format,
-    PreprocessTiming* timing = nullptr
+    PreprocessTiming* timing = nullptr,
+    Int8PackMode pack_mode = Int8PackMode::Optimized
 );

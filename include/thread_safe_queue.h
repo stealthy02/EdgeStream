@@ -9,14 +9,15 @@ class ThreadSafeQueue {
 public:
     explicit ThreadSafeQueue(size_t max_size) : max_size_(max_size) {}
 
-    void push(T item) {
+    bool push(T item) {
         std::unique_lock<std::mutex> lock(mtx_);
         cv_not_full_.wait(lock, [this] { return queue_.size() < max_size_ || is_stopped_; });
         if (is_stopped_) {
-            return ;
+            return false;
         }
         queue_.push(item);
         cv_not_empty_.notify_one();
+        return true;
     }
 
     bool pop(T& item) {

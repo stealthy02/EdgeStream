@@ -233,16 +233,11 @@ void rknn_bus_test(
     std::vector<float> output_data;
     int run_ret;
     if(quantization){
-        std::vector<float> tensor_data(channel * model_in_h * model_in_w);
+        std::vector<int8_t> tensor_data(channel * model_in_h * model_in_w);
         preprocess_image(image, preprocess_parameter, tensor_data, TENSOR_NHWC);
-        std::vector<int8_t> out(tensor_data.size());
-        for (size_t i = 0; i < tensor_data.size(); i++)
-        {
-            out[i] = fp_to_int8(tensor_data[i]);
-        }
         // 推理
         rknn_engine.input_setting(RKNN_TENSOR_INT8);
-        run_ret = rknn_engine.run(out.data(), output_data); 
+        run_ret = rknn_engine.run(tensor_data.data(), output_data); 
     }else{
         std::vector<uint16_t> tensor_data(channel * model_in_h * model_in_w);
         preprocess_image(image, preprocess_parameter, tensor_data, TENSOR_NHWC);

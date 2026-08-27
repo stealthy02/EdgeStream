@@ -50,3 +50,4 @@ def compare(reference, actual, score_atol, box_atol):
     return {'passed': passed, 'reference_count': len(reference), 'actual_count': len(actual), 'unmatched_reference_indices': sorted(unmatched), 'reference_class_counts': dict(Counter(x['class_name'] for x in reference)), 'actual_class_counts': dict(Counter(x['class_name'] for x in actual)), 'matches': matches}
 
 if __name__ == '__main__': raise SystemExit(main())
+ 

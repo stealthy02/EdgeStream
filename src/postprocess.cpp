@@ -1,8 +1,11 @@
 #include "postprocess.h"
 #include <cmath>
+#include <chrono>
 #include <limits>
 #include <vector>
 #include <algorithm>
+#include <map>
+
 // 从output_data中筛选出满足阈值的预测框, 不包括loU和NMS
 std::vector<Candidate> filter_candidates(
     const float* output_data,
@@ -14,35 +17,29 @@ std::vector<Candidate> filter_candidates(
     // 预留容量，减少 push_back 时重新分配内存
     filtered_candidates.reserve(candidate_count);
 
-    // 遍历8400个候选点
-    for (int candidate_index = 0;
-         candidate_index < candidate_count;
-         ++candidate_index) {
-
-        float best_score = -std::numeric_limits<float>::infinity();
-        int best_class_id = -1;
-
-        // 遍历 80 个类别；
-        float score;
-        for(int field_index = 4;field_index < field_count;++field_index){
-            score = output_data[field_index * candidate_count + candidate_index];
-            if(best_score < score){
-                best_score = score;
-                best_class_id = field_index-4;
+    std::map<int, std::pair<float,int>> m;
+    for(int i = candidate_count * 4; i < candidate_count * field_count;i++){
+        const float score = output_data[i];
+        if(score >= confidence_threshold){
+            const int candidate_id = i % candidate_count;
+            auto it = m.find(candidate_id);
+            if(it == m.end() || it->second.first < score){
+                m[candidate_id] = {score, i / candidate_count};
             }
         }
-        if (best_score >= confidence_threshold) {
-            Candidate candidate;
+    }
+    for (auto iter = m.begin(); iter != m.end(); ++iter){
+        Candidate candidate;
+        int candidate_id = iter->first;
+        auto& pr = iter->second; // pr就是pair<float,int>
 
-            candidate.cx = output_data[candidate_count * 0 + candidate_index];
-            candidate.cy = output_data[candidate_count * 1 + candidate_index];
-            candidate.w  = output_data[candidate_count * 2 + candidate_index];
-            candidate.h  = output_data[candidate_count * 3 + candidate_index];
-            candidate.score = best_score;
-            candidate.class_id = best_class_id;
-
-            filtered_candidates.push_back(candidate);
-        }
+        candidate.cx = output_data[candidate_count * 0 + candidate_id];
+        candidate.cy = output_data[candidate_count * 1 + candidate_id];
+        candidate.w  = output_data[candidate_count * 2 + candidate_id];
+        candidate.h  = output_data[candidate_count * 3 + candidate_id];
+        candidate.score = pr.first;
+        candidate.class_id = pr.second - 4;
+        filtered_candidates.push_back(candidate);
     }
 
     return filtered_candidates;
@@ -169,13 +166,51 @@ std::vector<Detection> postprocess_image(
     int candidate_count,
     float confidence_threshold,
     float iou_threshold,
-    PreprocessParameter preprocess_parameter
+    PreprocessParameter preprocess_parameter,
+    PostprocessTiming* timing
 ){
+    using clock = std::chrono::steady_clock;
+    const auto now_if_timed = [timing]() {
+        return timing != nullptr ? clock::now() : clock::time_point{};
+    };
+    const auto total_begin = now_if_timed();
+    if (timing != nullptr) {
+        *timing = {};
+    }
+
+    auto stage_begin = now_if_timed();
     std::vector<Candidate> filtered_candidates = filter_candidates(output_data,field_count,candidate_count,confidence_threshold);
+    if (timing != nullptr) {
+        timing->filter_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+        timing->filtered_count = filtered_candidates.size();
+    }
+
+    stage_begin = now_if_timed();
     const std::vector<Detection> detections_before_nms = convert_xywh_to_xyxy(filtered_candidates);
+    if (timing != nullptr) {
+        timing->convert_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+        timing->converted_count = detections_before_nms.size();
+    }
+
+    stage_begin = now_if_timed();
     const std::vector<Detection> detections_after_nms =  nms(detections_before_nms, iou_threshold);
+    if (timing != nullptr) {
+        timing->nms_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+        timing->kept_count = detections_after_nms.size();
+    }
+
+    stage_begin = now_if_timed();
     auto detections_original = restore_to_original(
         detections_after_nms,
         preprocess_parameter);
+    if (timing != nullptr) {
+        timing->restore_us = std::chrono::duration<double, std::micro>(
+            clock::now() - stage_begin).count();
+        timing->total_us = std::chrono::duration<double, std::micro>(
+            clock::now() - total_begin).count();
+    }
     return detections_original;
 }

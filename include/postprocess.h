@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <vector>
 #include "preprocess.h"
 struct Candidate {
@@ -23,6 +24,17 @@ struct Detection {
     Rectangle rectangle{};
     float score{};
     int class_id{-1};
+};
+
+struct PostprocessTiming {
+    double filter_us = 0.0;
+    double convert_us = 0.0;
+    double nms_us = 0.0;
+    double restore_us = 0.0;
+    double total_us = 0.0;
+    std::size_t filtered_count = 0;
+    std::size_t converted_count = 0;
+    std::size_t kept_count = 0;
 };
 
 float calculate_rectangle_area(const Rectangle& rectangle);
@@ -59,5 +71,6 @@ std::vector<Detection> postprocess_image(
     int candidate_count,
     float confidence_threshold,
     float iou_threshold,
-    PreprocessParameter preprocess_parameter
+    PreprocessParameter preprocess_parameter,
+    PostprocessTiming* timing = nullptr
 );

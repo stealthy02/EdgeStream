@@ -81,10 +81,12 @@ bool stopped_producer_does_not_remain_blocked() {
     // Leak only on failure: the current implementation may leave push blocked,
     // and destroying its queue while that thread is waiting would be unsafe.
     auto* queue = new ThreadSafeQueue<int>(1);
+    bool ok = true;
     queue->push(1);
     std::atomic<bool> finished{false};
-    std::thread producer([queue, &finished] {
-        queue->push(2);
+    std::atomic<bool> accepted{true};
+    std::thread producer([queue, &finished, &accepted] {
+        accepted.store(queue->push(2), std::memory_order_release);
         finished.store(true, std::memory_order_release);
     });
 
@@ -103,8 +105,10 @@ bool stopped_producer_does_not_remain_blocked() {
     }
 
     producer.join();
+    ok &= expect(!accepted.load(std::memory_order_acquire),
+                 "stopped queue must reject push");
     delete queue;
-    return true;
+    return ok;
 }
 
 }  // namespace

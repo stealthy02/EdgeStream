@@ -1,9 +1,11 @@
 #include <opencv2/opencv.hpp>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include <thread>
@@ -26,6 +28,107 @@ ThreadSafeQueue<cv::Mat> inference_queue(5);
 PreprocessParameter preprocess_parameter;
 int tensor_data_size;
 
+struct SystemSnapshot {
+    double max_temperature_c = -1.0;
+    double cpu0_frequency_mhz = -1.0;
+    double npu_frequency_mhz = -1.0;
+};
+
+namespace fs = std::filesystem;
+
+bool read_numeric_file(const fs::path& path, double& value)
+{
+    std::ifstream input(path);
+    if (!input.is_open()) {
+        return false;
+    }
+    input >> value;
+    return input.good() || input.eof();
+}
+
+double read_temperature_celsius()
+{
+    double max_temperature_c = -1.0;
+    std::error_code error;
+    const fs::path thermal_root = "/sys/class/thermal";
+    if (!fs::exists(thermal_root, error)) {
+        return max_temperature_c;
+    }
+
+    for (const auto& entry : fs::directory_iterator(thermal_root, error)) {
+        if (error || !entry.is_directory(error)) {
+            continue;
+        }
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("thermal_zone", 0) != 0) {
+            continue;
+        }
+
+        double raw_temperature = 0.0;
+        if (!read_numeric_file(entry.path() / "temp", raw_temperature)) {
+            continue;
+        }
+        const double temperature_c = raw_temperature > 1000.0
+            ? raw_temperature / 1000.0
+            : raw_temperature;
+        max_temperature_c = std::max(max_temperature_c, temperature_c);
+    }
+    return max_temperature_c;
+}
+
+double read_cpu0_frequency_mhz()
+{
+    double frequency_khz = 0.0;
+    const fs::path cpufreq_root = "/sys/devices/system/cpu/cpu0/cpufreq";
+    if (read_numeric_file(cpufreq_root / "scaling_cur_freq", frequency_khz) ||
+        read_numeric_file(cpufreq_root / "cpuinfo_cur_freq", frequency_khz)) {
+        return frequency_khz / 1000.0;
+    }
+    return -1.0;
+}
+
+double read_npu_frequency_mhz()
+{
+    std::error_code error;
+    const fs::path devfreq_root = "/sys/class/devfreq";
+    if (!fs::exists(devfreq_root, error)) {
+        return -1.0;
+    }
+
+    for (const auto& entry : fs::directory_iterator(devfreq_root, error)) {
+        if (error) {
+            continue;
+        }
+        std::string identity = entry.path().filename().string();
+        std::ifstream name_file(entry.path() / "name");
+        std::string device_name;
+        if (name_file.is_open()) {
+            std::getline(name_file, device_name);
+            identity += " " + device_name;
+        }
+        std::transform(identity.begin(), identity.end(), identity.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        if (identity.find("npu") == std::string::npos) {
+            continue;
+        }
+
+        double frequency_hz = 0.0;
+        if (read_numeric_file(entry.path() / "cur_freq", frequency_hz)) {
+            return frequency_hz / 1000000.0;
+        }
+    }
+    return -1.0;
+}
+
+SystemSnapshot read_system_snapshot()
+{
+    return {
+        read_temperature_celsius(),
+        read_cpu0_frequency_mhz(),
+        read_npu_frequency_mhz()
+    };
+}
+
 void sigint_handler(int /*sig*/)
 {
     g_stop_requested = 1;
@@ -42,7 +145,9 @@ void preprocess_thread(cv::VideoCapture& cap)
     {
         if (frame.empty())
             continue;
-        inference_queue.push(frame);
+        if (!inference_queue.push(frame)) {
+            break;
+        }
     }
     inference_queue.stop();
 }
@@ -67,7 +172,9 @@ bool mkdir_if_not_exist(const std::string& dir)
     return mkdir(dir.c_str(), 0755) == 0;
 }
 
-void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
+void inference_thread(
+    RknnEngine& rknn_engine)
+{
     cv::Mat frame;
     std::vector<int8_t> tensor_data(tensor_data_size);
     std::vector<float> output_data;
@@ -83,6 +190,7 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
             boxes_attr.dims[1] != 4 || boxes_attr.dims[2] != scores_attr.dims[2])
         {
             std::cerr << "RKNN split 输出维度不符合 [1,4,N] + [1,C,N]" << std::endl;
+            inference_queue.stop();
             return;
         }
         field_count = boxes_attr.dims[1] + scores_attr.dims[1];
@@ -105,12 +213,14 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
         else
         {
             std::cerr << "RKNN输出维度不符合YOLO单输出格式！" << std::endl;
+            inference_queue.stop();
             return;
         }
     }
     else
     {
         std::cerr << "RKNN模型输出不是3维张量，仅支持YOLO单输出" << std::endl;
+        inference_queue.stop();
         return;
     }
 
@@ -129,6 +239,17 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
     std::vector<double> prep_padding_list;
     std::vector<double> prep_pack_list;
     std::vector<double> prep_total_list;
+    std::vector<double> post_filter_list;
+    std::vector<double> post_convert_list;
+    std::vector<double> post_nms_list;
+    std::vector<double> post_restore_list;
+    std::vector<double> post_total_list;
+    std::vector<double> post_filtered_count_list;
+    std::vector<double> post_kept_count_list;
+    std::vector<double> temperature_list;
+    std::vector<double> cpu_frequency_list;
+    std::vector<double> npu_frequency_list;
+    std::vector<SystemSnapshot> system_list;
 
     double total_prep = 0.0;
     double total_infer = 0.0;
@@ -144,7 +265,8 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
             preprocess_parameter,
             tensor_data,
             TENSOR_NHWC,
-            breakdown_enabled ? &prep_timing : nullptr
+            &prep_timing,
+            Int8PackMode::Optimized
         );
         auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -152,26 +274,35 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
         const int run_ret = rknn_engine.run(
             tensor_data.data(),
             output_data,
-            breakdown_enabled ? &run_timing : nullptr
+            &run_timing
         );
         if (run_ret != 0) {
+            inference_queue.stop();
             const int attempted_frame = frame_cnt;
             --frame_cnt;
-            std::cerr << "RKNN inference failed at frame " << attempted_frame
-                      << ", ret=" << run_ret << std::endl;
+            std::cerr << "RKNN inference failed at frame "
+                    << attempted_frame << ", ret=" << run_ret << std::endl;
             break;
         }
         auto t2 = std::chrono::high_resolution_clock::now();
 
+        PostprocessTiming post_timing;
         auto detections_original = postprocess_image(
             output_data.data(),
             static_cast<int>(field_count),
             static_cast<int>(candidate_count),
             0.25,
             0.70F,
-            preprocess_parameter
+            preprocess_parameter,
+            &post_timing
         );
         auto t3 = std::chrono::high_resolution_clock::now();
+
+        SystemSnapshot system_snapshot;
+        if (frame_cnt == 1 || frame_cnt % 10 == 0) {
+            // 每 10 帧采样一次，且发生在本帧计时区间之后，避免 sysfs 读取污染 post_ms。
+            system_snapshot = read_system_snapshot();
+        }
 
         double prep_ms    = std::chrono::duration<double, std::milli>(t1 - t0).count();
         double infer_ms   = std::chrono::duration<double, std::milli>(t2 - t1).count();
@@ -186,26 +317,39 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
         infer_list.push_back(infer_ms);
         post_list.push_back(post_ms);
         total_list.push_back(frame_total_ms);
-        if (breakdown_enabled) {
-            input_copy_list.push_back(run_timing.input_copy_us);
-            inputs_set_list.push_back(run_timing.inputs_set_us);
-            run_call_list.push_back(run_timing.run_call_us);
-            outputs_get_list.push_back(run_timing.outputs_get_us);
-            output_pack_list.push_back(run_timing.output_pack_us);
-            outputs_release_list.push_back(run_timing.outputs_release_us);
-            infer_total_list.push_back(run_timing.total_us);
-            prep_resize_list.push_back(prep_timing.resize_us);
-            prep_padding_list.push_back(prep_timing.padding_us);
-            prep_pack_list.push_back(prep_timing.pack_us);
-            prep_total_list.push_back(prep_timing.total_us);
+        system_list.push_back(system_snapshot);
+        input_copy_list.push_back(run_timing.input_copy_us);
+        inputs_set_list.push_back(run_timing.inputs_set_us);
+        run_call_list.push_back(run_timing.run_call_us);
+        outputs_get_list.push_back(run_timing.outputs_get_us);
+        output_pack_list.push_back(run_timing.output_pack_us);
+        outputs_release_list.push_back(run_timing.outputs_release_us);
+        infer_total_list.push_back(run_timing.total_us);
+        prep_resize_list.push_back(prep_timing.resize_us);
+        prep_padding_list.push_back(prep_timing.padding_us);
+        prep_pack_list.push_back(prep_timing.pack_us);
+        prep_total_list.push_back(prep_timing.total_us);
+        post_filter_list.push_back(post_timing.filter_us);
+        post_convert_list.push_back(post_timing.convert_us);
+        post_nms_list.push_back(post_timing.nms_us);
+        post_restore_list.push_back(post_timing.restore_us);
+        post_total_list.push_back(post_timing.total_us);
+        post_filtered_count_list.push_back(static_cast<double>(post_timing.filtered_count));
+        post_kept_count_list.push_back(static_cast<double>(post_timing.kept_count));
+        if (system_snapshot.max_temperature_c >= 0.0) {
+            temperature_list.push_back(system_snapshot.max_temperature_c);
+        }
+        if (system_snapshot.cpu0_frequency_mhz >= 0.0) {
+            cpu_frequency_list.push_back(system_snapshot.cpu0_frequency_mhz);
+        }
+        if (system_snapshot.npu_frequency_mhz >= 0.0) {
+            npu_frequency_list.push_back(system_snapshot.npu_frequency_mhz);
         }
     }
 
     // 正常跑完 / Ctrl+C触发优雅停止，排空队列后都会进入统计保存json
     if(frame_cnt > 0){
-        const std::string raw_path = breakdown_enabled
-            ? "artifacts/rknn/orangepi_int8_breakdown_raw.jsonl"
-            : "artifacts/rknn/orangepi_int8_300f_raw.jsonl";
+        const std::string raw_path = "artifacts/rknn/orangepi_int8_breakdown_raw.jsonl";
         mkdir_if_not_exist("artifacts/rknn");
         std::ofstream raw(raw_path);
         if (!raw.is_open()) {
@@ -215,23 +359,35 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
                 json sample{{"frame", i + 1}, {"preprocess_ms", prep_list[i]},
                             {"infer_ms", infer_list[i]}, {"postprocess_ms", post_list[i]},
                             {"frame_total_ms", total_list[i]}};
-                if (breakdown_enabled) {
-                    sample["preprocess_breakdown_us"] = {
-                        {"resize", prep_resize_list[i]},
-                        {"padding", prep_padding_list[i]},
-                        {"pack", prep_pack_list[i]},
-                        {"total", prep_total_list[i]}
+                sample["preprocess_stages_ms"] = {
+                        {"resize", prep_resize_list[i] / 1000.0},
+                        {"padding", prep_padding_list[i] / 1000.0},
+                        {"pack", prep_pack_list[i] / 1000.0},
+                        {"total", prep_total_list[i] / 1000.0}
                     };
-                    sample["infer_breakdown_us"] = {
-                        {"input_copy", input_copy_list[i]},
-                        {"inputs_set", inputs_set_list[i]},
-                        {"run_call", run_call_list[i]},
-                        {"outputs_get", outputs_get_list[i]},
-                        {"output_pack", output_pack_list[i]},
-                        {"outputs_release", outputs_release_list[i]},
-                        {"total", infer_total_list[i]}
+                    sample["postprocess_stages_ms"] = {
+                        {"filter", post_filter_list[i] / 1000.0},
+                        {"convert", post_convert_list[i] / 1000.0},
+                        {"nms", post_nms_list[i] / 1000.0},
+                        {"restore", post_restore_list[i] / 1000.0},
+                        {"total", post_total_list[i] / 1000.0},
+                        {"filtered_count", post_filtered_count_list[i]},
+                        {"kept_count", post_kept_count_list[i]}
                     };
-                }
+                    sample["infer_stages_ms"] = {
+                        {"input_copy", input_copy_list[i] / 1000.0},
+                        {"inputs_set", inputs_set_list[i] / 1000.0},
+                        {"run_call", run_call_list[i] / 1000.0},
+                        {"outputs_get", outputs_get_list[i] / 1000.0},
+                        {"output_pack", output_pack_list[i] / 1000.0},
+                        {"outputs_release", outputs_release_list[i] / 1000.0},
+                        {"total", infer_total_list[i] / 1000.0}
+                    };
+                sample["system"] = {
+                        {"max_temperature_c", system_list[i].max_temperature_c},
+                        {"cpu0_frequency_mhz", system_list[i].cpu0_frequency_mhz},
+                        {"npu_frequency_mhz", system_list[i].npu_frequency_mhz}
+                };
                 raw << sample.dump() << '\n';
             }
             std::cout << "Raw timings saved to: " << raw_path << std::endl;
@@ -247,6 +403,11 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
 
         double avg_total = (total_prep + total_infer + total_post) / frame_cnt;
         double std_total = calc_std(total_list, avg_total);
+        const auto mean_us = [](const std::vector<double>& values) {
+            double total = 0.0;
+            for (double value : values) total += value;
+            return values.empty() ? 0.0 : total / values.size();
+        };
 
         std::cout << "\n===== Stat over " << frame_cnt << " frames =====" << std::endl;
         std::cout << std::fixed << std::setprecision(3)
@@ -255,11 +416,21 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
                   << "Avg Post: " << avg_post << " ms | Std Post: " << std_post << " ms\n"
                   << "Avg FrameTotal: " << avg_total << " ms | Std FrameTotal: " << std_total << " ms"
                   << std::endl;
+        std::cout << "\n[Preprocess stages, mean ms] resize=" << mean_us(prep_resize_list) / 1000.0
+                  << ", padding=" << mean_us(prep_padding_list) / 1000.0
+                  << ", pack=" << mean_us(prep_pack_list) / 1000.0 << std::endl;
+        std::cout << "[Infer stages, mean ms] input_copy=" << mean_us(input_copy_list) / 1000.0
+                  << ", inputs_set=" << mean_us(inputs_set_list) / 1000.0
+                  << ", run_call=" << mean_us(run_call_list) / 1000.0
+                  << ", outputs_get=" << mean_us(outputs_get_list) / 1000.0
+                  << ", output_pack=" << mean_us(output_pack_list) / 1000.0 << std::endl;
+        std::cout << "[Postprocess stages, mean ms] filter=" << mean_us(post_filter_list) / 1000.0
+                  << ", convert=" << mean_us(post_convert_list) / 1000.0
+                  << ", nms=" << mean_us(post_nms_list) / 1000.0
+                  << ", restore=" << mean_us(post_restore_list) / 1000.0 << std::endl;
 
         const std::string out_dir = "artifacts/rknn";
-        const std::string json_path = breakdown_enabled
-            ? out_dir + "/orangepi_int8_breakdown_stats.json"
-            : out_dir + "/orangepi_int8_infer_stats.json";
+        const std::string json_path = out_dir + "/orangepi_int8_breakdown_stats.json";
         mkdir_if_not_exist(out_dir);
 
         json stats;
@@ -278,14 +449,14 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
         stats["frame_total"]["mean"] = avg_total;
         stats["frame_total"]["std"]  = std_total;
 
-        if (breakdown_enabled) {
+        {
             auto save_breakdown = [&stats](
                 const char* category,
                 const char* name,
                 const std::vector<double>& values,
                 double mean) {
-                stats["breakdown"][category][name]["mean_us"] = mean;
-                stats["breakdown"][category][name]["std_us"] = calc_std(values, mean);
+                stats["breakdown"][category][name]["mean_ms"] = mean / 1000.0;
+                stats["breakdown"][category][name]["std_ms"] = calc_std(values, mean) / 1000.0;
             };
             auto mean_of = [](const std::vector<double>& values) {
                 double total = 0.0;
@@ -303,6 +474,36 @@ void inference_thread(RknnEngine& rknn_engine, bool breakdown_enabled){
             save_breakdown("infer", "output_pack", output_pack_list, mean_of(output_pack_list));
             save_breakdown("infer", "outputs_release", outputs_release_list, mean_of(outputs_release_list));
             save_breakdown("infer", "total", infer_total_list, mean_of(infer_total_list));
+            save_breakdown("postprocess", "filter", post_filter_list, mean_of(post_filter_list));
+            save_breakdown("postprocess", "convert", post_convert_list, mean_of(post_convert_list));
+            save_breakdown("postprocess", "nms", post_nms_list, mean_of(post_nms_list));
+            save_breakdown("postprocess", "restore", post_restore_list, mean_of(post_restore_list));
+            save_breakdown("postprocess", "total", post_total_list, mean_of(post_total_list));
+
+            stats["postprocess"]["filtered_count"] = {
+                {"mean", mean_of(post_filtered_count_list)},
+                {"std", calc_std(post_filtered_count_list,
+                                  mean_of(post_filtered_count_list))}
+            };
+            stats["postprocess"]["kept_count"] = {
+                {"mean", mean_of(post_kept_count_list)},
+                {"std", calc_std(post_kept_count_list,
+                                  mean_of(post_kept_count_list))}
+            };
+            stats["system"] = {
+                {"max_temperature_c", {
+                    {"mean", mean_of(temperature_list)},
+                    {"std", calc_std(temperature_list, mean_of(temperature_list))}
+                }},
+                {"cpu0_frequency_mhz", {
+                    {"mean", mean_of(cpu_frequency_list)},
+                    {"std", calc_std(cpu_frequency_list, mean_of(cpu_frequency_list))}
+                }},
+                {"npu_frequency_mhz", {
+                    {"mean", mean_of(npu_frequency_list)},
+                    {"std", calc_std(npu_frequency_list, mean_of(npu_frequency_list))}
+                }}
+            };
         }
 
         std::ofstream f(json_path);
@@ -325,18 +526,15 @@ int main(int argc, char* argv[])
 
     const std::string default_model_path = "models/rknn/yolo11s_640_split_int8.rknn";
     std::string model_path = default_model_path;
-    bool breakdown_enabled = false;
     bool model_path_set = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--breakdown") {
-            breakdown_enabled = true;
-        } else if (!model_path_set) {
+        if (!model_path_set) {
             model_path = arg;
             model_path_set = true;
         } else {
             std::cerr << "用法: " << argv[0]
-                      << " [model_path] [--breakdown]" << std::endl;
+                      << " [model_path]" << std::endl;
             return -1;
         }
     }
@@ -376,7 +574,10 @@ int main(int argc, char* argv[])
     tensor_data_size = channel * model_in_h * model_in_w;
 
     std::thread t1(preprocess_thread,std::ref(cap));
-    std::thread t2(inference_thread,std::ref(rknn_engine), breakdown_enabled);
+    std::cout << "[INFO] INT8 benchmark: optimized preprocessing + full timing breakdown" << std::endl;
+    std::thread t2(
+        inference_thread,
+        std::ref(rknn_engine));
 
     t1.join();
     t2.join();
