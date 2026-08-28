@@ -1,0 +1,20 @@
+-- ✅ 检测到 librknnrt.so : /usr/lib/librknnrt.so
+-- ✅ 将构建目标：edgestream_core, edgestream
+-- ✅ 找到 nlohmann_json，将编译 JSON 相关测试程序
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/orangepi/project/EdgeStream/build
+Consolidate compiler generated dependencies of target thread_safe_queue_test
+Consolidate compiler generated dependencies of target edgestream_core
+[ 11%] Built target thread_safe_queue_test
+[ 41%] Built target edgestream_core
+Consolidate compiler generated dependencies of target rknn_video_test
+Consolidate compiler generated dependencies of target onnx_video_test
+Consolidate compiler generated dependencies of target rknn_int8_video_test
+Consolidate compiler generated dependencies of target edgestream
+[ 52%] Built target rknn_video_test
+Consolidate compiler generated dependencies of target bus_test
+[ 64%] Built target onnx_video_test
+[ 76%] Built target edgestream
+[100%] Built target bus_test
+[100%] Built target rknn_int8_video_test

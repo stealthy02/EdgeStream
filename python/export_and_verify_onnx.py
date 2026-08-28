@@ -2,12 +2,12 @@
 """Run either ONNX variant and compare decoded detections with the reference."""
 from __future__ import annotations
 import argparse, json
-from collections import Counter
 from pathlib import Path
 import cv2
 import numpy as np
 import onnxruntime as ort
-from yolo_pipeline import build_input_tensor, decode_outputs, letterbox, load_jsonl, save_jsonl
+from yolo_pipeline import (build_input_tensor, compare_detections, decode_outputs,
+                           letterbox, load_jsonl, save_jsonl)
 
 def main() -> int:
     p = argparse.ArgumentParser()
@@ -32,22 +32,9 @@ def main() -> int:
     reference = load_jsonl(a.reference); names = {int(x['class_id']): x.get('class_name', f"class_{x['class_id']}") for x in reference}
     actual = [{'detection_index': i, 'class_id': int(c), 'class_name': names.get(int(c), f'class_{c}'), 'confidence': float(s), 'xyxy': [float(v) for v in b]} for i, (b, s, c) in enumerate(zip(boxes, scores, classes))]
     a.output_dir.mkdir(parents=True, exist_ok=True); save_jsonl(a.output_dir / 'onnx_detections.jsonl', actual)
-    result = compare(reference, actual, a.score_atol, a.box_atol)
+    result = compare_detections(reference, actual, a.score_atol, a.box_atol)
     (a.output_dir / 'comparison.json').write_text(json.dumps(result, indent=2) + '\n')
     print(f'model: {a.model}\noutputs: {len(outputs)}\ndetections: {len(actual)}\npassed: {result["passed"]}')
     return 0 if result['passed'] else 1
 
-def compare(reference, actual, score_atol, box_atol):
-    unmatched, matches, passed = set(range(len(reference))), [], len(reference) == len(actual)
-    for ai, item in enumerate(actual):
-        candidates = [i for i in unmatched if int(reference[i]['class_id']) == item['class_id']]
-        if not candidates: passed = False; matches.append({'actual_index': ai, 'matched': False}); continue
-        ri = min(candidates, key=lambda i: sum((item['xyxy'][j] - reference[i]['xyxy'][j]) ** 2 for j in range(4)))
-        unmatched.remove(ri); score_error = abs(item['confidence'] - float(reference[ri]['confidence']))
-        box_error = max(abs(item['xyxy'][j] - float(reference[ri]['xyxy'][j])) for j in range(4)); ok = score_error <= score_atol and box_error <= box_atol
-        passed &= ok; matches.append({'actual_index': ai, 'reference_index': ri, 'score_abs_error': score_error, 'box_max_abs_error': box_error, 'passed': ok})
-    passed &= not unmatched
-    return {'passed': passed, 'reference_count': len(reference), 'actual_count': len(actual), 'unmatched_reference_indices': sorted(unmatched), 'reference_class_counts': dict(Counter(x['class_name'] for x in reference)), 'actual_class_counts': dict(Counter(x['class_name'] for x in actual)), 'matches': matches}
-
 if __name__ == '__main__': raise SystemExit(main())
- 

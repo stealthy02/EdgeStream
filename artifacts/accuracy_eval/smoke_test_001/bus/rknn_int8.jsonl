@@ -1,0 +1,2 @@
+{"detection_index": 0, "class_id": 2, "class_name": "car", "confidence": 0.7, "xyxy": [100.0, 100.0, 500.0, 400.0]}
+{"detection_index": 1, "class_id": 0, "class_name": "person", "confidence": 0.2, "xyxy": [520.0, 200.0, 580.0, 380.0]}

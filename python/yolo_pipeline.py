@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -117,3 +118,54 @@ def save_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as f:
         for record in records:
             f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def compare_detections(reference: list[dict[str, Any]],
+                       actual: list[dict[str, Any]],
+                       score_atol: float,
+                       box_atol: float) -> dict[str, Any]:
+    """逐框贪心匹配（同类别 + 最小 L2 距离），在容差内判定通过。
+
+    用途：ONNX 导出验证（pass/fail）。
+    精度报告（precision/recall/IoU/类别统计）请用 scripts/accuracy_benchmark.py
+    中的 match_and_score —— 两者算法与目标不同，故各自独立实现。
+    """
+    unmatched: set[int] = set(range(len(reference)))
+    matches: list[dict[str, Any]] = []
+    passed = len(reference) == len(actual)
+
+    for ai, item in enumerate(actual):
+        candidates = [i for i in unmatched
+                      if int(reference[i]["class_id"]) == item["class_id"]]
+        if not candidates:
+            passed = False
+            matches.append({"actual_index": ai, "matched": False})
+            continue
+        ri = min(candidates,
+                 key=lambda i: sum((item["xyxy"][j] - reference[i]["xyxy"][j]) ** 2
+                                   for j in range(4)))
+        unmatched.remove(ri)
+        score_error = abs(item["confidence"] - float(reference[ri]["confidence"]))
+        box_error = max(abs(item["xyxy"][j] - float(reference[ri]["xyxy"][j]))
+                        for j in range(4))
+        ok = score_error <= score_atol and box_error <= box_atol
+        passed &= ok
+        matches.append({
+            "actual_index": ai, "reference_index": ri,
+            "score_abs_error": score_error,
+            "box_max_abs_error": box_error,
+            "passed": ok,
+        })
+    passed &= not unmatched
+    return {
+        "passed": passed,
+        "reference_count": len(reference),
+        "actual_count": len(actual),
+        "unmatched_reference_indices": sorted(unmatched),
+        "reference_class_counts": dict(
+            Counter(x.get("class_name", f"class_{x['class_id']}") for x in reference)),
+        "actual_class_counts": dict(
+            Counter(x.get("class_name", f"class_{x['class_id']}") for x in actual)),
+        "matches": matches,
+    }
+

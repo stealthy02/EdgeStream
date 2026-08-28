@@ -1,4 +1,4 @@
-#include "thread_safe_queue.h"
+#include "edgestream/concurrency/thread_safe_queue.h"
 
 #include <atomic>
 #include <chrono>

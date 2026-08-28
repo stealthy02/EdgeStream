@@ -1,0 +1,82 @@
+# ==============================================================================
+# EdgeStream — OrangePi (RK3588) 板端 Python 依赖清单（aarch64 / ARM64）
+# 作用：在板端直接跑 RKNN FP16 / INT8 推理，配合 scripts/accuracy_benchmark.py
+#       实现一条命令跑完 PT→ONNX→RKNN FP16→RKNN INT8 四阶段精度对比
+# ==============================================================================
+#
+# 【板端部署模式（二选一）】
+#   模式 A（推荐）：最小运行模式 —— 只跑 RKNN 推理
+#       PC 端跑 PT + ONNX（占资源少、速度快）
+#       板端只跑 RKNN FP16/INT8，需要的依赖极少，装起来最快
+#       → 安装本文件 第① 步 + 第② 步（rknn_toolkit_lite2）
+#
+#   模式 B：完整四阶段模式 —— 板端跑 PT+ONNX+RKNN
+#       板端也要装 torch / ultralytics（体积大、耗时长、占 ~2GB 磁盘）
+#       → 安装本文件全部步骤
+#
+# ------------------------------------------------------------------------------
+# 【安装前必读 — 3 个踩过的坑】
+#
+# ❌ 坑1：直接 pip install rknn-toolkit-lite2 → 会报 No matching distribution found
+#    原因：rknn 系列包由 Rockchip/OrangePi 提供，不在 PyPI 上。
+#    正确做法：从官方渠道下载 .whl 文件，然后 pip install /path/to/xxx.whl
+#
+# ❌ 坑2：Wheel 的 cpXX tag 不匹配板端 Python 版本 → ABI 错误 / import 炸
+#    例如：Python 3.10 必须装 *-cp310-cp310-linux_aarch64.whl
+#          Python 3.9  必须装 *-cp39-cp39-linux_aarch64.whl
+#    禁止用"解压改名"方式伪装兼容，会触发 undefined symbol 等怪异错误。
+#    先运行：  $ python3 -V
+#    再选与之匹配的 cpXX wheel。
+#
+# ❌ 坑3：orangepi 用户 pip 装完 → root 用户下运行找不到 rknnlite
+#    原因：两个用户各自独立的 ~/.local/lib/pythonX.X/site-packages
+#    解决：装包 和 运行脚本 必须是同一个用户（推荐全程 orangepi 用户）。
+#          若必须用 root 运行，装包时加 sudo -H pip3 install ... 装到系统级。
+#
+# ------------------------------------------------------------------------------
+# 【安装步骤】
+#
+# ① 装本文件内的 PyPI 包（numpy、opencv-python 等，板端可直接 pip）：
+#    $ pip3 install --upgrade pip
+#    $ pip3 install -r requirements-orangepi.txt
+#
+# ② 单独装 rknn_toolkit_lite2（板端 NPU 推理运行时，非 PyPI）：
+#    —— 获取渠道（任选其一）：
+#       · OrangePi 官方系统镜像内 /usr/share/rknn-toolkit-lite2/ 或类似目录
+#       · 板厂随板附带的 SDK / 网盘 / 文档页下载
+#       · Rockchip GitHub rockchip-linux/rknn-toolkit2 releases 下的
+#         rknn_toolkit_lite2/packages/ 目录（选 aarch64 + 匹配 cpXX）
+#    —— 验证兼容性（对照输出结果选 whl）：
+#       $ python3 -c "import sys; print(sys.version); \
+#         print('需要 tag: cp%d%d-cp%d%dm-linux_aarch64' % (sys.version_info[:2]*2))"
+#    —— 安装命令示例（请替换成你实际的 whl 路径）：
+#       $ pip3 install ~/rknn_toolkit_lite2-1.4.0-cp310-cp310-linux_aarch64.whl
+#    —— 安装后验证：
+#       $ python3 -c "from rknnlite.api import RKNNLite; print('rknn_toolkit_lite2 OK')"
+#
+# ③ 【模式 B 才需要，可选】板端跑 PT/ONNX 需要装 torch + ultralytics：
+#    板端是 ARM64，torch 官方 PyPI 有 aarch64 wheel，直接：
+#       $ pip3 install torch>=2.0 ultralytics>=8.3 onnxruntime>=1.16
+#    （磁盘剩余 ≥ 3GB 再执行，装得慢，半小时内属正常）
+#
+# ==============================================================================
+
+# ---- 模式 A 必需：numpy + opencv-python，板端 PyPI 直接装 ----
+numpy>=1.24,<2.2
+opencv-python>=4.8,<5.0    # 只做读写/缩放，无需 GUI；也可替换为 opencv-python-headless
+
+# ==============================================================================
+# ⚠️  rknn_toolkit_lite2 — 以上 pip -r 步骤不会装这个包
+#     必须按 ② 中的说明从官方渠道下载 wheel 后手动 pip install。
+#     （写在下面当一个占位提醒，如果没装会触发 ImportError，脚本会打印友好提示）
+# ==============================================================================
+# rknn_toolkit_lite2 @ file:///ABSOLUTE/PATH/TO/rknn_toolkit_lite2-X.Y.Z-cp310-cp310-linux_aarch64.whl
+
+# ==============================================================================
+# 【模式 B 可选依赖 — 想要在板端跑完整 PT→ONNX→RKNN 四阶段就装下面这些】
+# （模式 A 不需要，PC 端已经跑过 PT/ONNX 了）
+# ==============================================================================
+# torch>=2.0,<2.6
+# ultralytics>=8.3,<8.4
+# onnxruntime>=1.16,<1.20
+# onnx>=1.14,<1.18

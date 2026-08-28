@@ -1,0 +1,8 @@
+Internal ctest changing into directory: /home/orangepi/project/EdgeStream/build
+Test project /home/orangepi/project/EdgeStream/build
+    Start 1: thread_safe_queue_regression
+1/1 Test #1: thread_safe_queue_regression .....   Passed    0.16 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.16 sec

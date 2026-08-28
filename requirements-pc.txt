@@ -1,0 +1,52 @@
+# ==============================================================================
+# EdgeStream — PC 端 Python 依赖清单（x86_64 Linux / Windows / macOS）
+# 覆盖流水线：PT 推理 → ONNX 导出 → ONNX 拆分 → ONNX 验证 → RKNN 模型转换
+# ==============================================================================
+#
+# 【环境要求】
+#   - Python 版本：强烈推荐 3.10.x（与 rknn-toolkit2 1.4.x / ultralytics 都稳定兼容）
+#       $ python3 --version     # 先确认是 3.10
+#   - 建议用虚拟环境隔离：
+#       $ python3 -m venv .venv
+#       $ source .venv/bin/activate   # Windows: .venv\Scripts\activate
+#
+# 【安装步骤】
+#   ① 先装本清单（纯 PyPI 包，无网络之外的依赖）：
+#       $ pip install --upgrade pip
+#       $ pip install -r requirements-pc.txt
+#
+#   ② 再单独装 rknn-toolkit2（注意：此包不在 PyPI，必须从 Rockchip/OrangePi 官方下载 wheel）
+#       —— 来源渠道（任选其一）：——
+#       · OrangePi 官方 SDK 镜像内 /opt 目录或文档页提供的 rknn-toolkit2-*-cp310-cp310-linux_x86_64.whl
+#       · Rockchip 官方 rknn-toolkit2 发布页（GitHub rockchip-linux/rknn-toolkit2 releases）
+#       · 板厂提供的打包压缩包
+#       —— 安装命令：——
+#       $ pip install /path/to/rknn_toolkit2-1.4.0+xxxxxxxx-cp310-cp310-linux_x86_64.whl
+#       —— 重要检查：——
+#         $ python3 -c "from rknn.api import RKNN; r=RKNN(); r.config(target_platform='rk3588', mean_values=[[0,0,0]], std_values=[[255,255,255]]); print('rknn-toolkit2 OK')"
+#
+# 【覆盖脚本】
+#   python/generate_reference.py    (PT 基准推理)
+#   python/export_onnx.py           (下载 PT → 导出 单输出ONNX + 拆分输出ONNX)
+#   python/export_and_verify_onnx.py(ONNX 推理 + 与PT对比)
+#   python/convert_rknn.py          (ONNX → RKNN FP16/INT8 转换)     ← 需要步骤② rknn-toolkit2
+#   scripts/accuracy_benchmark.py   (多图四阶段精度基准)             ← RKNN 模拟推理也需要步骤②
+#
+# ==============================================================================
+
+# ---- 基础数值 / 图像处理 ----
+numpy>=1.24,<2.2          # 全脚本基础；避免 2.x 早期版的兼容问题
+opencv-python>=4.8,<5.0  # cv2：图像读取、letterbox 预处理；只装 headless 也可
+
+# ---- 模型格式 / 推理引擎 ----
+onnx>=1.14,<1.18          # export_onnx.py 用 helper/onnx.checker 修改模型图
+onnxruntime>=1.16,<1.20   # CPU 版 ONNX 推理（export_and_verify_onnx / accuracy_benchmark onnx 阶段）
+
+# ---- PyTorch / Ultralytics YOLO ----
+# 注：torch 默认装 CPU 版（约 200MB）；如需 CUDA 加速请去 pytorch.org 按指令单独装
+torch>=2.0,<2.6 ; platform_machine != "aarch64"
+ultralytics>=8.3,<8.4    # YOLO11s 推理与 ONNX 导出；YOLO11 模型定义在这里
+
+# ---- 附加 / 辅助（可选，不会打断主流程） ----
+# rich>=13                 # 想要更漂亮的终端输出可以打开，当前脚本没用到
+# pyyaml>=6                # ultralytics 已间接依赖，不必单独列

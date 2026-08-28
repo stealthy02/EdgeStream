@@ -1,0 +1,145 @@
+{
+  "detection_counts": {
+    "pt": 2,
+    "onnx": 2,
+    "rknn_fp16": 2
+  },
+  "meta": {
+    "pt": {
+      "source": "pt.jsonl",
+      "detection_count": 2
+    },
+    "onnx": {
+      "source": "onnx.jsonl",
+      "detection_count": 2
+    },
+    "rknn_fp16": {
+      "source": "rknn_fp16.jsonl",
+      "detection_count": 2
+    }
+  },
+  "comparisons": {
+    "onnx": {
+      "iou_threshold": 0.5,
+      "reference_count": 2,
+      "actual_count": 2,
+      "true_positive": 2,
+      "false_positive": 0,
+      "false_negative": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "avg_iou": 1.0,
+      "avg_confidence_diff": 0.0,
+      "class_stats": {
+        "person": {
+          "reference_count": 1,
+          "actual_count": 1,
+          "true_positive": 1,
+          "fn": 0,
+          "fp": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "avg_iou": 1.0,
+          "avg_conf_diff": 0.0
+        },
+        "sports ball": {
+          "reference_count": 1,
+          "actual_count": 1,
+          "true_positive": 1,
+          "fn": 0,
+          "fp": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "avg_iou": 1.0,
+          "avg_conf_diff": 0.0
+        }
+      },
+      "matches": [
+        {
+          "reference_index": 0,
+          "actual_index": 0,
+          "class_id": 32,
+          "class_name": "sports ball",
+          "iou": 1.0,
+          "confidence_ref": 0.91,
+          "confidence_act": 0.91,
+          "confidence_diff": 0.0
+        },
+        {
+          "reference_index": 1,
+          "actual_index": 1,
+          "class_id": 0,
+          "class_name": "person",
+          "iou": 1.0,
+          "confidence_ref": 0.87,
+          "confidence_act": 0.87,
+          "confidence_diff": 0.0
+        }
+      ],
+      "missed_detections": [],
+      "false_positive_detections": []
+    },
+    "rknn_fp16": {
+      "iou_threshold": 0.5,
+      "reference_count": 2,
+      "actual_count": 2,
+      "true_positive": 2,
+      "false_positive": 0,
+      "false_negative": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "avg_iou": 1.0,
+      "avg_confidence_diff": 0.0,
+      "class_stats": {
+        "person": {
+          "reference_count": 1,
+          "actual_count": 1,
+          "true_positive": 1,
+          "fn": 0,
+          "fp": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "avg_iou": 1.0,
+          "avg_conf_diff": 0.0
+        },
+        "sports ball": {
+          "reference_count": 1,
+          "actual_count": 1,
+          "true_positive": 1,
+          "fn": 0,
+          "fp": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "avg_iou": 1.0,
+          "avg_conf_diff": 0.0
+        }
+      },
+      "matches": [
+        {
+          "reference_index": 0,
+          "actual_index": 0,
+          "class_id": 32,
+          "class_name": "sports ball",
+          "iou": 1.0,
+          "confidence_ref": 0.91,
+          "confidence_act": 0.91,
+          "confidence_diff": 0.0
+        },
+        {
+          "reference_index": 1,
+          "actual_index": 1,
+          "class_id": 0,
+          "class_name": "person",
+          "iou": 1.0,
+          "confidence_ref": 0.87,
+          "confidence_act": 0.87,
+          "confidence_diff": 0.0
+        }
+      ],
+      "missed_detections": [],
+      "false_positive_detections": []
+    }
+  }
+}

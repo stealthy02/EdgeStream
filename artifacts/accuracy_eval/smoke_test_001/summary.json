@@ -1,0 +1,592 @@
+{
+  "run_dir": "artifacts/accuracy_eval/smoke_test_001",
+  "run_id": "smoke_test_001",
+  "generated_at": "2026-08-28T10:42:26",
+  "env": {
+    "python": "3.10.12",
+    "system": "Linux 6.1.43-rockchip-rk3588",
+    "note": "本脚本纯离线，未做任何推理。检测结果来源请查看 per_image.*.source。"
+  },
+  "match_iou_threshold": 0.5,
+  "stages_present": [
+    "pt",
+    "onnx",
+    "rknn_fp16",
+    "rknn_int8"
+  ],
+  "image_count": 2,
+  "images": [
+    "bus",
+    "sports_ball"
+  ],
+  "per_image": {
+    "bus": {
+      "detections": {
+        "pt": 3,
+        "onnx": 3,
+        "rknn_fp16": 2,
+        "rknn_int8": 2
+      },
+      "meta": {
+        "pt": {
+          "source": "pt.jsonl",
+          "detection_count": 3
+        },
+        "onnx": {
+          "source": "onnx.jsonl",
+          "detection_count": 3
+        },
+        "rknn_fp16": {
+          "source": "rknn_fp16.jsonl",
+          "detection_count": 2
+        },
+        "rknn_int8": {
+          "source": "rknn_int8.jsonl",
+          "detection_count": 2
+        }
+      },
+      "comparisons": {
+        "onnx": {
+          "iou_threshold": 0.5,
+          "reference_count": 3,
+          "actual_count": 3,
+          "true_positive": 2,
+          "false_positive": 1,
+          "false_negative": 1,
+          "precision": 0.6666666666666666,
+          "recall": 0.6666666666666666,
+          "f1": 0.6666666666666666,
+          "avg_iou": 0.9652083333333333,
+          "avg_confidence_diff": 0.019999999999999962,
+          "class_stats": {
+            "person": {
+              "reference_count": 2,
+              "actual_count": 2,
+              "true_positive": 1,
+              "fn": 1,
+              "fp": 1,
+              "recall": 0.5,
+              "precision": 0.5,
+              "avg_iou": 1.0,
+              "avg_conf_diff": 0.010000000000000009
+            },
+            "bus": {
+              "reference_count": 1,
+              "actual_count": 1,
+              "true_positive": 1,
+              "fn": 0,
+              "fp": 0,
+              "recall": 1.0,
+              "precision": 1.0,
+              "avg_iou": 0.9304166666666667,
+              "avg_conf_diff": 0.029999999999999916
+            }
+          },
+          "matches": [
+            {
+              "reference_index": 0,
+              "actual_index": 0,
+              "class_id": 5,
+              "class_name": "bus",
+              "iou": 0.9304166666666667,
+              "confidence_ref": 0.95,
+              "confidence_act": 0.92,
+              "confidence_diff": 0.029999999999999916
+            },
+            {
+              "reference_index": 1,
+              "actual_index": 1,
+              "class_id": 0,
+              "class_name": "person",
+              "iou": 1.0,
+              "confidence_ref": 0.9,
+              "confidence_act": 0.89,
+              "confidence_diff": 0.010000000000000009
+            }
+          ],
+          "missed_detections": [
+            {
+              "class_name": "person",
+              "class_id": 0,
+              "confidence": 0.88,
+              "xyxy": [
+                600.0,
+                220.0,
+                660.0,
+                390.0
+              ]
+            }
+          ],
+          "false_positive_detections": [
+            {
+              "class_name": "person",
+              "class_id": 0,
+              "confidence": 0.3,
+              "xyxy": [
+                700.0,
+                100.0,
+                730.0,
+                150.0
+              ]
+            }
+          ]
+        },
+        "rknn_fp16": {
+          "iou_threshold": 0.5,
+          "reference_count": 3,
+          "actual_count": 2,
+          "true_positive": 2,
+          "false_positive": 0,
+          "false_negative": 1,
+          "precision": 1.0,
+          "recall": 0.6666666666666666,
+          "f1": 0.8,
+          "avg_iou": 0.9375,
+          "avg_confidence_diff": 0.09999999999999998,
+          "class_stats": {
+            "person": {
+              "reference_count": 2,
+              "actual_count": 1,
+              "true_positive": 1,
+              "fn": 1,
+              "fp": 0,
+              "recall": 0.5,
+              "precision": 1.0,
+              "avg_iou": 1.0,
+              "avg_conf_diff": 0.050000000000000044
+            },
+            "bus": {
+              "reference_count": 1,
+              "actual_count": 1,
+              "true_positive": 1,
+              "fn": 0,
+              "fp": 0,
+              "recall": 1.0,
+              "precision": 1.0,
+              "avg_iou": 0.875,
+              "avg_conf_diff": 0.1499999999999999
+            }
+          },
+          "matches": [
+            {
+              "reference_index": 0,
+              "actual_index": 0,
+              "class_id": 5,
+              "class_name": "bus",
+              "iou": 0.875,
+              "confidence_ref": 0.95,
+              "confidence_act": 0.8,
+              "confidence_diff": 0.1499999999999999
+            },
+            {
+              "reference_index": 1,
+              "actual_index": 1,
+              "class_id": 0,
+              "class_name": "person",
+              "iou": 1.0,
+              "confidence_ref": 0.9,
+              "confidence_act": 0.85,
+              "confidence_diff": 0.050000000000000044
+            }
+          ],
+          "missed_detections": [
+            {
+              "class_name": "person",
+              "class_id": 0,
+              "confidence": 0.88,
+              "xyxy": [
+                600.0,
+                220.0,
+                660.0,
+                390.0
+              ]
+            }
+          ],
+          "false_positive_detections": []
+        },
+        "rknn_int8": {
+          "iou_threshold": 0.5,
+          "reference_count": 3,
+          "actual_count": 2,
+          "true_positive": 1,
+          "false_positive": 1,
+          "false_negative": 2,
+          "precision": 0.5,
+          "recall": 0.3333333333333333,
+          "f1": 0.4,
+          "avg_iou": 1.0,
+          "avg_confidence_diff": 0.7,
+          "class_stats": {
+            "person": {
+              "reference_count": 2,
+              "actual_count": 1,
+              "true_positive": 1,
+              "fn": 1,
+              "fp": 0,
+              "recall": 0.5,
+              "precision": 1.0,
+              "avg_iou": 1.0,
+              "avg_conf_diff": 0.7
+            },
+            "bus": {
+              "reference_count": 1,
+              "actual_count": 0,
+              "true_positive": 0,
+              "fn": 1,
+              "fp": 0,
+              "recall": 0.0,
+              "precision": 0.0,
+              "avg_iou": 0.0,
+              "avg_conf_diff": 0.0
+            },
+            "car": {
+              "reference_count": 0,
+              "actual_count": 1,
+              "true_positive": 0,
+              "fn": 0,
+              "fp": 1,
+              "recall": 0.0,
+              "precision": 0.0,
+              "avg_iou": 0.0,
+              "avg_conf_diff": 0.0
+            }
+          },
+          "matches": [
+            {
+              "reference_index": 1,
+              "actual_index": 1,
+              "class_id": 0,
+              "class_name": "person",
+              "iou": 1.0,
+              "confidence_ref": 0.9,
+              "confidence_act": 0.2,
+              "confidence_diff": 0.7
+            }
+          ],
+          "missed_detections": [
+            {
+              "class_name": "bus",
+              "class_id": 5,
+              "confidence": 0.95,
+              "xyxy": [
+                100.0,
+                100.0,
+                500.0,
+                400.0
+              ]
+            },
+            {
+              "class_name": "person",
+              "class_id": 0,
+              "confidence": 0.88,
+              "xyxy": [
+                600.0,
+                220.0,
+                660.0,
+                390.0
+              ]
+            }
+          ],
+          "false_positive_detections": [
+            {
+              "class_name": "car",
+              "class_id": 2,
+              "confidence": 0.7,
+              "xyxy": [
+                100.0,
+                100.0,
+                500.0,
+                400.0
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "sports_ball": {
+      "detections": {
+        "pt": 2,
+        "onnx": 2,
+        "rknn_fp16": 2
+      },
+      "meta": {
+        "pt": {
+          "source": "pt.jsonl",
+          "detection_count": 2
+        },
+        "onnx": {
+          "source": "onnx.jsonl",
+          "detection_count": 2
+        },
+        "rknn_fp16": {
+          "source": "rknn_fp16.jsonl",
+          "detection_count": 2
+        }
+      },
+      "comparisons": {
+        "onnx": {
+          "iou_threshold": 0.5,
+          "reference_count": 2,
+          "actual_count": 2,
+          "true_positive": 2,
+          "false_positive": 0,
+          "false_negative": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "avg_iou": 1.0,
+          "avg_confidence_diff": 0.0,
+          "class_stats": {
+            "person": {
+              "reference_count": 1,
+              "actual_count": 1,
+              "true_positive": 1,
+              "fn": 0,
+              "fp": 0,
+              "recall": 1.0,
+              "precision": 1.0,
+              "avg_iou": 1.0,
+              "avg_conf_diff": 0.0
+            },
+            "sports ball": {
+              "reference_count": 1,
+              "actual_count": 1,
+              "true_positive": 1,
+              "fn": 0,
+              "fp": 0,
+              "recall": 1.0,
+              "precision": 1.0,
+              "avg_iou": 1.0,
+              "avg_conf_diff": 0.0
+            }
+          },
+          "matches": [
+            {
+              "reference_index": 0,
+              "actual_index": 0,
+              "class_id": 32,
+              "class_name": "sports ball",
+              "iou": 1.0,
+              "confidence_ref": 0.91,
+              "confidence_act": 0.91,
+              "confidence_diff": 0.0
+            },
+            {
+              "reference_index": 1,
+              "actual_index": 1,
+              "class_id": 0,
+              "class_name": "person",
+              "iou": 1.0,
+              "confidence_ref": 0.87,
+              "confidence_act": 0.87,
+              "confidence_diff": 0.0
+            }
+          ],
+          "missed_detections": [],
+          "false_positive_detections": []
+        },
+        "rknn_fp16": {
+          "iou_threshold": 0.5,
+          "reference_count": 2,
+          "actual_count": 2,
+          "true_positive": 2,
+          "false_positive": 0,
+          "false_negative": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "avg_iou": 1.0,
+          "avg_confidence_diff": 0.0,
+          "class_stats": {
+            "person": {
+              "reference_count": 1,
+              "actual_count": 1,
+              "true_positive": 1,
+              "fn": 0,
+              "fp": 0,
+              "recall": 1.0,
+              "precision": 1.0,
+              "avg_iou": 1.0,
+              "avg_conf_diff": 0.0
+            },
+            "sports ball": {
+              "reference_count": 1,
+              "actual_count": 1,
+              "true_positive": 1,
+              "fn": 0,
+              "fp": 0,
+              "recall": 1.0,
+              "precision": 1.0,
+              "avg_iou": 1.0,
+              "avg_conf_diff": 0.0
+            }
+          },
+          "matches": [
+            {
+              "reference_index": 0,
+              "actual_index": 0,
+              "class_id": 32,
+              "class_name": "sports ball",
+              "iou": 1.0,
+              "confidence_ref": 0.91,
+              "confidence_act": 0.91,
+              "confidence_diff": 0.0
+            },
+            {
+              "reference_index": 1,
+              "actual_index": 1,
+              "class_id": 0,
+              "class_name": "person",
+              "iou": 1.0,
+              "confidence_ref": 0.87,
+              "confidence_act": 0.87,
+              "confidence_diff": 0.0
+            }
+          ],
+          "missed_detections": [],
+          "false_positive_detections": []
+        }
+      }
+    }
+  },
+  "overall": {
+    "onnx": {
+      "true_positive": 4,
+      "false_positive": 1,
+      "false_negative": 1,
+      "precision": 0.8,
+      "recall": 0.8,
+      "f1": 0.8000000000000002,
+      "avg_iou": 0.9826041666666667,
+      "avg_confidence_diff": 0.009999999999999981,
+      "avg_infer_ms": 0.0,
+      "class_stats": {
+        "person": {
+          "reference_count": 3,
+          "actual_count": 3,
+          "true_positive": 2,
+          "fn": 1,
+          "fp": 1,
+          "recall": 0.6666666666666666,
+          "precision": 0.6666666666666666,
+          "avg_iou": 1.0,
+          "avg_conf_diff": 0.0050000000000000044
+        },
+        "bus": {
+          "reference_count": 1,
+          "actual_count": 1,
+          "true_positive": 1,
+          "fn": 0,
+          "fp": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "avg_iou": 0.9304166666666667,
+          "avg_conf_diff": 0.029999999999999916
+        },
+        "sports ball": {
+          "reference_count": 1,
+          "actual_count": 1,
+          "true_positive": 1,
+          "fn": 0,
+          "fp": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "avg_iou": 1.0,
+          "avg_conf_diff": 0.0
+        }
+      }
+    },
+    "rknn_fp16": {
+      "true_positive": 4,
+      "false_positive": 0,
+      "false_negative": 1,
+      "precision": 1.0,
+      "recall": 0.8,
+      "f1": 0.888888888888889,
+      "avg_iou": 0.96875,
+      "avg_confidence_diff": 0.04999999999999999,
+      "avg_infer_ms": 0.0,
+      "class_stats": {
+        "person": {
+          "reference_count": 3,
+          "actual_count": 2,
+          "true_positive": 2,
+          "fn": 1,
+          "fp": 0,
+          "recall": 0.6666666666666666,
+          "precision": 1.0,
+          "avg_iou": 1.0,
+          "avg_conf_diff": 0.025000000000000022
+        },
+        "bus": {
+          "reference_count": 1,
+          "actual_count": 1,
+          "true_positive": 1,
+          "fn": 0,
+          "fp": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "avg_iou": 0.875,
+          "avg_conf_diff": 0.1499999999999999
+        },
+        "sports ball": {
+          "reference_count": 1,
+          "actual_count": 1,
+          "true_positive": 1,
+          "fn": 0,
+          "fp": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "avg_iou": 1.0,
+          "avg_conf_diff": 0.0
+        }
+      }
+    },
+    "rknn_int8": {
+      "true_positive": 1,
+      "false_positive": 1,
+      "false_negative": 2,
+      "precision": 0.5,
+      "recall": 0.3333333333333333,
+      "f1": 0.4,
+      "avg_iou": 1.0,
+      "avg_confidence_diff": 0.7,
+      "avg_infer_ms": 0.0,
+      "class_stats": {
+        "person": {
+          "reference_count": 2,
+          "actual_count": 1,
+          "true_positive": 1,
+          "fn": 1,
+          "fp": 0,
+          "recall": 0.5,
+          "precision": 1.0,
+          "avg_iou": 1.0,
+          "avg_conf_diff": 0.7
+        },
+        "bus": {
+          "reference_count": 1,
+          "actual_count": 0,
+          "true_positive": 0,
+          "fn": 1,
+          "fp": 0,
+          "recall": 0.0,
+          "precision": 0.0,
+          "avg_iou": 0.0,
+          "avg_conf_diff": 0.0
+        },
+        "car": {
+          "reference_count": 0,
+          "actual_count": 1,
+          "true_positive": 0,
+          "fn": 0,
+          "fp": 1,
+          "recall": 0.0,
+          "precision": 0.0,
+          "avg_iou": 0.0,
+          "avg_conf_diff": 0.0
+        }
+      }
+    }
+  }
+}
