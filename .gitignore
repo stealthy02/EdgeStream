@@ -5,3 +5,5 @@ docs/
 corrected_data/
 models/
 __pycache__/
+test_image/
+artifacts/

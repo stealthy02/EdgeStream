@@ -13,8 +13,7 @@
     └── manifest.json   (运行参数、环境信息、图片列表)
 
 用法示例：
-  # 推荐：批量跑 coco8 8 张
-  python3 python/generate_reference.py --images-dir assets/regression/coco8
+  python3 python/generate_reference.py --images-dir assets/regression/test_image
 
   # 兼容旧用法：只跑单张 bus.jpg
   python3 python/generate_reference.py --image assets/regression/bus.jpg
@@ -99,8 +98,7 @@ def main() -> int:
             raise FileNotFoundError(f"图片不存在: {a.image}")
         images = [a.image]
     else:
-        # 两者都没传：默认 coco8
-        default_dir = Path("assets/regression/coco8")
+        default_dir = Path("assets/regression/test_image")
         if default_dir.is_dir():
             print(f"[信息] 未指定 --image/--images-dir，使用默认目录: {default_dir}")
             images = sorted([p for p in default_dir.iterdir()

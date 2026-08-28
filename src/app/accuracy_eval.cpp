@@ -17,10 +17,10 @@
 //
 // 用法：
 //   # 1) 先在 PC 端跑阶段 1（PT 参考），拿到 RUN_DIR
-//   python3 python/generate_reference.py --images-dir assets/regression/coco8
+//   python3 python/generate_reference.py --images-dir assets/regression/test_image
 //
 //   # 2) 在 OrangePi 板端拷贝好同目录结构后，跑阶段 2：
-//   ./accuracy_eval --run-dir artifacts/accuracy_eval/20260828_120000 --images-dir assets/regression/coco8
+//   ./accuracy_eval --run-dir artifacts/accuracy_eval/20260828_120000 --images-dir assets/regression/test_image
 //
 //   # 板端没装 RKNN 驱动？只验证 ONNX C++ 链路：
 //   ./accuracy_eval --run-dir ... --images-dir ... --onnx-only
@@ -169,7 +169,7 @@ static std::vector<std::pair<std::string, std::string>> scan_image_dir(const std
 // ============================================================================
 struct Args {
     std::string run_dir;
-    std::string images_dir = "assets/regression/coco8";
+    std::string images_dir = "assets/regression/test_image";
     std::string onnx_model  = "models/onnx/yolo11s_640_split.onnx";
     std::string rknn_fp16   = "models/rknn/yolo11s_640_split.rknn";
     std::string rknn_int8   = "models/rknn/yolo11s_640_split_int8.rknn";
@@ -185,7 +185,7 @@ static void print_usage(const char* prog)
         << "用法: " << prog << " --run-dir <DIR> [选项]\n\n"
         << "  --run-dir <DIR>        【必填】阶段 1 generate_reference.py 输出的 run 目录\n"
         << "                          例: artifacts/accuracy_eval/20260828_120000\n"
-        << "  --images-dir <DIR>     测试图片目录 (默认: assets/regression/coco8)\n"
+        << "  --images-dir <DIR>     测试图片目录 (默认: assets/regression/test_image)\n"
         << "  --onnx-model <PATH>    ONNX split 模型路径\n"
         << "  --rknn-fp16 <PATH>     RKNN FP16 模型路径\n"
         << "  --rknn-int8 <PATH>     RKNN INT8 模型路径\n"
