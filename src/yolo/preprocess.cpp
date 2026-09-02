@@ -145,13 +145,13 @@ static void convert_NHWC(
 // int8
 inline int8_t int_to_int8(int fp)
 {
-    const int8_t in_zp   = -128;
+    const int8_t in_zp   = 0;
     int q = fp + in_zp;
     // 四舍五入
     int32_t val = static_cast<int32_t>(nearbyint(q));
     // 钳位 int8 范围 [-128, 127]
-    if(val < -128) val = -128;
-    if(val > 127)  val = 127;
+    if(val < 0) val = 0;
+    if(val > 127)  val = 255;
     // std::cout<<val<<" ";
     return static_cast<int8_t>(val);
 }

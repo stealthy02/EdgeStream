@@ -1,3 +1,0 @@
-{"detection_index": 0, "class_id": 5, "class_name": "bus", "confidence": 0.92, "xyxy": [110.0, 105.0, 495.0, 395.0]}
-{"detection_index": 1, "class_id": 0, "class_name": "person", "confidence": 0.89, "xyxy": [520.0, 200.0, 580.0, 380.0]}
-{"detection_index": 2, "class_id": 0, "class_name": "person", "confidence": 0.3, "xyxy": [700.0, 100.0, 730.0, 150.0]}

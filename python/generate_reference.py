@@ -2,15 +2,19 @@
 """
 【阶段 1 / 3】PyTorch (Ultralytics) 批量参考推理。
 
-作用：用 PyTorch 原生 YOLO 对一批图片做推理，输出每张图的 pt.jsonl 参考结果，
+作用：用 PyTorch 原生 YOLO 对一批图片做推理，输出每张图的 pytorch/{stem}.jsonl 参考结果，
      作为后续 C++ (ONNX / RKNN FP16 / RKNN INT8) 结果的对比基准。
 
-输出目录结构（与 bus_test.cpp C++ 多图版、accuracy_benchmark.py 离线脚本 三方对齐）：
-  artifacts/accuracy_eval/{run_id}/
-    ├── {image_stem_1}/pt.jsonl
-    ├── {image_stem_2}/pt.jsonl
-    ├── ...
-    └── manifest.json   (运行参数、环境信息、图片列表)
+输出目录结构（与 accuracy_eval C++ 多图版、accuracy_benchmark.py 离线脚本 三方对齐：
+按后端分文件夹，固定无日期，可单独重跑而不影响其他后端）：
+  artifacts/accuracy_eval/
+    ├── pytorch/                 ← 本脚本写
+    │   ├── {image_stem_1}.jsonl
+    │   ├── {image_stem_2}.jsonl
+    │   └── manifest.json        (运行参数、环境信息、图片列表)
+    ├── onnx/                    ← C++ 阶段 2 写
+    ├── rknn_fp16/               ← C++ 阶段 2 写
+    └── rknn_int8/               ← C++ 阶段 2 写
 
 用法示例：
   python3 python/generate_reference.py --images-dir assets/regression/test_image
@@ -70,10 +74,8 @@ def main() -> int:
     p.add_argument("--images-dir", type=Path, default=None,
                    help=f"目录模式：扫描目录下所有 {','.join(sorted(IMG_EXTS))} 图片（推荐）")
     # ---- 输出 ----
-    p.add_argument("--output-root", type=Path, default=Path("artifacts/accuracy_eval"),
-                   help="报告根目录，会在下面按时间戳生成独立 run_id 子目录")
-    p.add_argument("--run-id", type=str, default=None,
-                   help="手动指定 run_id 目录名（不指定则自动用时间戳）")
+    p.add_argument("--output-dir", type=Path, default=Path("artifacts/accuracy_eval/pytorch"),
+                   help="PT 参考输出目录 (默认 artifacts/accuracy_eval/pytorch，固定无日期，覆盖式写)")
     # ---- 推理超参 ----
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--conf", type=float, default=0.25)
@@ -113,11 +115,9 @@ def main() -> int:
                 raise RuntimeError("请通过 --image 或 --images-dir 指定输入图片")
     print(f"[阶段1-PT] 共 {len(images)} 张待推理")
 
-    # 2) 准备 run 输出目录
-    run_id = a.run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = a.output_root / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[阶段1-PT] 输出目录: {run_dir}")
+    # 2) 准备输出目录（固定无日期，覆盖式写）
+    a.output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[阶段1-PT] 输出目录: {a.output_dir}")
 
     # 3) 加载模型（只加载一次，重复用）
     print(f"[阶段1-PT] 加载模型: {a.model}  (device={a.device}) ...")
@@ -133,9 +133,7 @@ def main() -> int:
             print(f"[跳过] 无法读取")
             continue
         detections, result = detect_one(model, img, a.imgsz, a.conf, a.iou, a.device)
-        img_dir = run_dir / stem
-        img_dir.mkdir(exist_ok=True)
-        save_jsonl(img_dir / "pt.jsonl", detections)
+        save_jsonl(a.output_dir / f"{stem}.jsonl", detections)
         per_image_meta[stem] = {
             "image_path": str(img_path.resolve()),
             "image_size": {"width": int(img.shape[1]), "height": int(img.shape[0])},
@@ -145,7 +143,6 @@ def main() -> int:
 
     # 5) manifest
     manifest = {
-        "run_id": run_id,
         "stage": "pt_reference",
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "env": {
@@ -164,12 +161,13 @@ def main() -> int:
         "images": [p.stem for p in images],
         "per_image": per_image_meta,
     }
-    (run_dir / "manifest.json").write_text(
+    (a.output_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    print(f"[阶段1-PT] 完成。manifest: {run_dir / 'manifest.json'}")
-    print(f"[提示] 接下来把这个 run_id 目录路径传给 C++ bus_test 和 accuracy_benchmark：")
-    print(f"       RUN_DIR={run_dir}")
+    print(f"[阶段1-PT] 完成。manifest: {a.output_dir / 'manifest.json'}")
+    print(f"[提示] 接下来跑阶段 2 (C++) 和阶段 3，默认都对齐 artifacts/accuracy_eval：")
+    print(f"  ./accuracy_eval --images-dir {a.images_dir or a.image}   # → onnx/ rknn_fp16/ rknn_int8/")
+    print(f"  python3 scripts/accuracy_benchmark.py                   # → summary.json/.md")
     return 0
 
 

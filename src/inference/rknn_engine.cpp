@@ -380,6 +380,7 @@ void RknnEngine::print_model_tensor_info() const
     {
         const auto& attr = input_attrs_[i];
         printf("[Input %zu] name=%s, dims=[", i, attr.name);
+        printf("Scale: %f, Zero Point: %d\n", input_attrs_[i].scale, input_attrs_[i].zp);
         for (uint32_t d = 0; d < attr.n_dims; d++)
         {
             printf("%u ", attr.dims[d]);

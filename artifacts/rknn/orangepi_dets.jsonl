@@ -1,5 +1,0 @@
-{"class_id":5,"class_name":"bus","confidence":0.935546875,"detection_index":0,"xyxy":[28.6875,226.546875,798.1875,737.859375]}
-{"class_id":0,"class_name":"person","confidence":0.89794921875,"detection_index":1,"xyxy":[222.64453125,404.7890625,345.19921875,857.4609375]}
-{"class_id":0,"class_name":"person","confidence":0.896484375,"detection_index":2,"xyxy":[48.62109375,401.4140625,246.69140625,904.7109375]}
-{"class_id":0,"class_name":"person","confidence":0.87890625,"detection_index":3,"xyxy":[668.4609375,389.6015625,809.7890625,881.0859375]}
-{"class_id":0,"class_name":"person","confidence":0.7109375,"detection_index":4,"xyxy":[0.0,545.90625,79.1015625,874.96875]}

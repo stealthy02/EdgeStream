@@ -58,21 +58,28 @@ EdgeStream/
 
 ### 多图四阶段精度评测
 
+按**后端**分文件夹，固定无日期，三个脚本默认都对齐 `artifacts/accuracy_eval/`：
+
 ```bash
-# 阶段1 (PC)：PyTorch 参考 → pt.jsonl
-python3 python/generate_reference.py --images-dir assets/regression/coco8
+# 阶段1 (PC)：PyTorch 参考 → artifacts/accuracy_eval/pytorch/{stem}.jsonl
+python3 python/generate_reference.py --images-dir assets/regression/test_image
 
-# 阶段2 (板)：C++ 跑 ONNX / RKNN FP16 / RKNN INT8 → 同 run_dir 下三份 jsonl
-./build/accuracy_eval --run-dir artifacts/accuracy_eval/<RUN_ID> --images-dir assets/regression/coco8
+# 阶段2 (板)：C++ 跑 ONNX / RKNN FP16 / RKNN INT8 → artifacts/accuracy_eval/{onnx,rknn_fp16,rknn_int8}/{stem}.jsonl
+./build/accuracy_eval --images-dir assets/regression/test_image
 
-# 阶段3 (任意)：纯离线汇总报告
-python3 scripts/accuracy_benchmark.py --run-dir artifacts/accuracy_eval/<RUN_ID>
+# 阶段3 (任意)：纯离线汇总报告 → artifacts/accuracy_eval/summary.{json,md}
+python3 scripts/accuracy_benchmark.py
 ```
 
-完整流程、参数与报告说明见 [docs/REGRESSION.md](docs/REGRESSION.md)。固定图 ONNX 导出验证：
+每个后端独立成文件夹，可单独重跑而不影响其他后端；阶段 3 按 stem 跨四个文件夹匹配对比。完整流程、参数与报告说明见 [docs/REGRESSION.md](docs/REGRESSION.md)。固定图 ONNX 导出验证（纯 Python，隔离"ONNX 导出本身坏没坏"与 C++ 代码无关）：
 
 ```bash
-python3 python/export_and_verify_onnx.py --model models/onnx/yolo11s_640_split.onnx
+# 先生成该图的 PyTorch 参考 → artifacts/accuracy_eval/pytorch/bus.jsonl
+python3 python/generate_reference.py --image assets/regression/bus.jpg
+
+# 再用 ONNX Runtime 跑同一张图，与参考对比 → artifacts/onnx_verify/
+python3 python/export_and_verify_onnx.py --model models/onnx/yolo11s_640.onnx
+# 参考路径默认按图片名自动推导；缺参考时会直接提示上面那条命令
 ```
 
 ## Python 模型流水线
@@ -106,4 +113,4 @@ RKNN 输入由 C++ 显式准备，`pass_through=1`：FP16 使用 `float16/NHWC`�
 - `artifacts/reference/`：PyTorch 参考结果（[fixed_image_comparison.json](artifacts/reference/fixed_image_comparison.json)）
 - `artifacts/onnx/` / `artifacts/rknn/`：固定图输出与 300 帧摘要
 - `artifacts/benchmark/`：基准清单与运行元数据（[orangepi_300f_manifest.json](artifacts/benchmark/orangepi_300f_manifest.json)、[performance_analysis.md](artifacts/benchmark/performance_analysis.md)）
-- `artifacts/accuracy_eval/`：四阶段精度流水线 run 目录
+- `artifacts/accuracy_eval/`：四阶段精度流水线（`pytorch/` / `onnx/` / `rknn_fp16/` / `rknn_int8/` 各放对应后端的 `{stem}.jsonl`，外加 `summary.{json,md}`）

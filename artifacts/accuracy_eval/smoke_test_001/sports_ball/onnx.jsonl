@@ -1,2 +1,0 @@
-{"detection_index": 0, "class_id": 32, "class_name": "sports ball", "confidence": 0.91, "xyxy": [300.0, 300.0, 330.0, 330.0]}
-{"detection_index": 1, "class_id": 0, "class_name": "person", "confidence": 0.87, "xyxy": [10.0, 10.0, 200.0, 480.0]}

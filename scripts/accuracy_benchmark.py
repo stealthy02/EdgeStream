@@ -5,23 +5,20 @@
 
 ⚠️  本脚本不做任何模型推理，因此 100% 不会干扰你验证 C++ 代码的正确性。
     它只是一个"批改卷子"的角色：
-      · 参考"标准答案" = 阶段 1 generate_reference.py 跑的 pt.jsonl  (PyTorch 原生)
-      · "待批卷子"   = 阶段 2 bus_test (C++) 跑的 onnx / rknn_fp16 / rknn_int8 .jsonl
+      · 参考"标准答案" = 阶段 1 generate_reference.py 跑的 pytorch/*.jsonl  (PyTorch 原生)
+      · "待批卷子"   = 阶段 2 accuracy_eval (C++) 跑的 onnx/ rknn_fp16/ rknn_int8/ *.jsonl
 
-输入：阶段 1 + 阶段 2 共同写入的 run_dir，目录结构必须是：
-  artifacts/accuracy_eval/{run_id}/
-    ├── {image_stem_1}/
-    │   ├── pt.jsonl           （阶段 1，参考基准）
-    │   ├── onnx.jsonl         （阶段 2 C++ ONNX 推理结果，待验证）
-    │   ├── rknn_fp16.jsonl    （阶段 2 C++ RKNN FP16 推理结果，待验证）
-    │   └── rknn_int8.jsonl    （阶段 2 C++ RKNN INT8 推理结果，待验证）
-    ├── {image_stem_2}/
-    ├── ...
-    └── manifest.json          （阶段 1 写入，可选，缺失时自动扫目录）
+输入：阶段 1 + 阶段 2 共同写入的 output_root，目录结构（按后端分文件夹，固定无日期）：
+  artifacts/accuracy_eval/
+    ├── pytorch/{stem}.jsonl ...    （阶段 1，参考基准）
+    ├── onnx/{stem}.jsonl ...       （阶段 2 C++ ONNX 推理结果，待验证）
+    ├── rknn_fp16/{stem}.jsonl ...  （阶段 2 C++ RKNN FP16 推理结果，待验证）
+    └── rknn_int8/{stem}.jsonl ...  （阶段 2 C++ RKNN INT8 推理结果，待验证）
+  本脚本在 output_root 下生成 summary.json + summary.md。
 
 用法：
-  python3 scripts/accuracy_benchmark.py --run-dir artifacts/accuracy_eval/20260828_120000
-  python3 scripts/accuracy_benchmark.py --run-dir ... --match-iou 0.5   # 改匹配 IoU 阈值
+  python3 scripts/accuracy_benchmark.py
+  python3 scripts/accuracy_benchmark.py --output-root artifacts/accuracy_eval --match-iou 0.5
 """
 from __future__ import annotations
 
@@ -35,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 # ============================================================================
-# 轻量 JSONL 读写（不再依赖 yolo_pipeline，脚本可独立放到任意机器运行）
+# 轻量 JSONL 读写（不依赖 yolo_pipeline，脚本可独立放到任意机器运行）
 # ============================================================================
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
@@ -138,24 +135,23 @@ def match_and_score(reference: list[dict[str, Any]],
 # ============================================================================
 # 汇总与报告生成
 # ============================================================================
-STAGES = ("pt", "onnx", "rknn_fp16", "rknn_int8")
+STAGES = ("pytorch", "onnx", "rknn_fp16", "rknn_int8")
 STAGE_LABELS = {
-    "pt": "PyTorch (参考)", "onnx": "ONNX (C++)",
+    "pytorch": "PyTorch (参考)", "onnx": "ONNX (C++)",
     "rknn_fp16": "RKNN FP16 (C++)", "rknn_int8": "RKNN INT8 (C++)",
 }
 
-def build_summary(run_dir: Path, image_names: list[str],
+def build_summary(output_root: Path, image_names: list[str],
                   per_image: dict[str, dict[str, Any]],
                   stages_present: list[str],
                   match_iou: float) -> tuple[dict[str, Any], str]:
     summary = {
-        "run_dir": str(run_dir),
-        "run_id": run_dir.name,
+        "output_root": str(output_root),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "env": {
             "python": platform.python_version(),
             "system": f"{platform.system()} {platform.release()}",
-            "note": "本脚本纯离线，未做任何推理。检测结果来源请查看 per_image.*.source。",
+            "note": "本脚本纯离线，未做任何推理。检测结果来源请查看 per_image.*.meta.*.source。",
         },
         "match_iou_threshold": match_iou,
         "stages_present": stages_present,
@@ -164,9 +160,9 @@ def build_summary(run_dir: Path, image_names: list[str],
         "per_image": per_image,
     }
 
-    # 全局聚合
+    # 全局聚合（pytorch 为参考基准，其余三个待评阶段聚合）
     overall: dict[str, Any] = {}
-    for stage in [s for s in STAGES if s != "pt" and s in stages_present]:
+    for stage in [s for s in STAGES if s != "pytorch" and s in stages_present]:
         tps = fps = fns = 0
         ious, cds, infer_times = [], [], []
         cls_stat: dict[str, dict[str, float]] = defaultdict(lambda: {
@@ -218,20 +214,21 @@ def build_summary(run_dir: Path, image_names: list[str],
 
     # ============ Markdown ============
     md: list[str] = []
-    md.append(f"# YOLO 四阶段精度对比报告 —— `{run_dir.name}`")
+    md.append(f"# YOLO 四阶段精度对比报告")
     md.append("")
     md.append(f"- 生成时间：{summary['generated_at']}")
+    md.append(f"- 输出根目录：{output_root}")
     md.append(f"- 匹配 IoU 阈值：≥ {match_iou}")
     md.append(f"- 图片数量：{len(image_names)}")
     md.append(f"- 存在阶段：{' / '.join(f'{STAGE_LABELS[s]} ({s})' for s in stages_present)}")
-    if "pt" not in stages_present:
-        md.append("- ⚠️  **缺少 PT 参考 JSONL** — 以下对比指标均以 ONNX 为基准（不推荐），请先执行阶段 1。")
+    if "pytorch" not in stages_present:
+        md.append("- ⚠️  **缺少 pytorch 参考 JSONL** — 以下对比指标均以 ONNX 为基准（不推荐），请先执行阶段 1。")
     md.append("")
-    md.append("> 本报告基于 C++ 推理输出的 JSONL 生成，100% 离线，未做任何推理，用于验证 C++ 代码 (preprocess → inference_engine/RknnEngine → postprocess) 正确性。")
+    md.append("> 本报告基于 C++ 推理输出的 JSONL 生成，100% 离线，未做任何推理，用于验证 C++ 代码 (preprocess → OnnxEngine/RknnEngine → postprocess) 正确性。")
     md.append("")
 
     # Table 1：全局汇总
-    md.append("## 1. 全局汇总指标（PT 为参考基准）")
+    md.append("## 1. 全局汇总指标（PyTorch 为参考基准）")
     md.append("")
     md.append("| 阶段 (C++) | 总检出 | TP | FP | FN | Precision | Recall | F1 | Avg IoU | Avg ConfΔ |")
     md.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
@@ -251,13 +248,13 @@ def build_summary(run_dir: Path, image_names: list[str],
     if candidate_stages:
         md.append("## 2. 逐图对比")
         md.append("")
-        cols = ["图片", "PT 框数"]
+        cols = ["图片", "PyTorch 框数"]
         for s in candidate_stages: cols += [f"{s} R", f"{s} mIoU"]
         md.append("| " + " | ".join(cols) + " |")
         md.append("|" + "|".join(["---"] * len(cols)) + "|")
         for img in image_names:
             info = per_image[img]
-            pt_count = int(info["detections"].get("pt", 0))
+            pt_count = int(info["detections"].get("pytorch", 0))
             row = [img, str(pt_count)]
             for s in candidate_stages:
                 comp = info["comparisons"].get(s)
@@ -271,7 +268,7 @@ def build_summary(run_dir: Path, image_names: list[str],
 
     # Table 3：RKNN INT8 类别级掉点明细（重灾区）
     if "rknn_int8" in overall:
-        md.append("## 3. RKNN INT8 类别级掉点明细（与 PT 参考比对）")
+        md.append("## 3. RKNN INT8 类别级掉点明细（与 PyTorch 参考比对）")
         md.append("")
         md.append("| 类别 | 参考框 | INT8检出 | TP | 漏检 | 误检 | Recall | Precision | Avg IoU | Avg ConfΔ |")
         md.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
@@ -318,82 +315,85 @@ def build_summary(run_dir: Path, image_names: list[str],
 
 
 # ============================================================================
-# 主流程：扫目录 → 读 JSONL → 算指标 → 写报告
+# 主流程：按后端扫目录 → 读 JSONL → 算指标 → 写报告
 # ============================================================================
 def main() -> int:
     p = argparse.ArgumentParser(description="【阶段 3/3】纯离线精度对比报告 (不做推理)")
-    p.add_argument("--run-dir", type=Path, required=True,
-                   help="阶段 1 + 阶段 2 共同产出的目录 (含 {stem}/*.jsonl)")
+    p.add_argument("--output-root", type=Path, default=Path("artifacts/accuracy_eval"),
+                   help="阶段 1+2 共同产出的根目录 (含 pytorch/onnx/rknn_fp16/rknn_int8 子目录)")
     p.add_argument("--match-iou", type=float, default=0.5,
                    help="参考框与预测框匹配所需最小 IoU (默认 0.5)")
     args = p.parse_args()
 
-    run_dir: Path = args.run_dir
-    if not run_dir.is_dir():
-        raise FileNotFoundError(f"run_dir 不存在: {run_dir}")
+    output_root: Path = args.output_root
+    if not output_root.is_dir():
+        raise FileNotFoundError(f"output_root 不存在: {output_root}")
 
-    # 1) 收集每张图的子目录（包含任意 jsonl 就算）
-    image_dirs: list[Path] = sorted([
-        d for d in run_dir.iterdir() if d.is_dir()
-        and any(p.suffix == ".jsonl" for p in d.iterdir())
-    ])
-    if not image_dirs:
-        raise RuntimeError(f"run_dir 下没有找到任何图片子目录 + jsonl：{run_dir}")
+    # 1) 按后端扫描 {output_root}/{stage}/{stem}.jsonl，按 stem 聚合
+    stage_data: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    stages_present_set: set[str] = set()
+    for stage in STAGES:
+        stage_dir = output_root / stage
+        stem_map: dict[str, list[dict[str, Any]]] = {}
+        if stage_dir.is_dir():
+            for jp in sorted(stage_dir.iterdir()):
+                if jp.is_file() and jp.suffix == ".jsonl":
+                    items = load_jsonl(jp)
+                    if items:
+                        stem_map[jp.stem] = items
+                        stages_present_set.add(stage)
+        stage_data[stage] = stem_map
 
-    # 2) 加载 manifest（如果有阶段 1 写的）
-    manifest: dict[str, Any] = {}
-    manifest_path = run_dir / "manifest.json"
+    if not stages_present_set:
+        raise RuntimeError(f"output_root 下没找到任何 {STAGES} 子目录的 .jsonl：{output_root}")
+
+    # 2) 图片集合：pytorch 参考 manifest 定顺序；其余 stage 的 stem 取并集追加
+    manifest_path = output_root / "pytorch" / "manifest.json"
+    ordered_stems: list[str] = []
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        ordered_names = manifest.get("images", [])
-        # 按 manifest 中的顺序排（保证和阶段 1 一致），再追加那些 manifest 没有但目录里有的
-        stem_to_dir = {d.name: d for d in image_dirs}
-        ordered_dirs = [stem_to_dir[n] for n in ordered_names if n in stem_to_dir]
-        for d in image_dirs:
-            if d not in ordered_dirs:
-                ordered_dirs.append(d)
-        image_dirs = ordered_dirs
+        pytorch_stems = set(stage_data.get("pytorch", {}).keys())
+        ordered_stems = [s for s in manifest.get("images", []) if s in pytorch_stems]
+    seen = set(ordered_stems)
+    all_stems = list(ordered_stems)
+    for sm in stage_data.values():
+        for s in sm.keys():
+            if s not in seen:
+                all_stems.append(s); seen.add(s)
+    all_stems.sort(key=lambda s: (s not in ordered_stems, s))  # manifest 顺序优先，其余按名排
+    image_names = all_stems
+    if not image_names:
+        raise RuntimeError("没有找到任何图片的 jsonl 结果")
 
     print(f"【阶段 3/3】纯离线精度对比")
-    print(f"  run_dir   = {run_dir}")
-    print(f"  match IoU = {args.match_iou}")
-    print(f"  图片目录数 = {len(image_dirs)}\n")
+    print(f"  output_root = {output_root}")
+    print(f"  match IoU   = {args.match_iou}")
+    print(f"  存在阶段    = {sorted(stages_present_set)}")
+    print(f"  图片数量    = {len(image_names)}\n")
 
-    # 3) 逐图读 4 份 JSONL + 算对比
+    # 3) 逐图算对比
     per_image: dict[str, dict[str, Any]] = {}
-    image_names: list[str] = []
-    stages_present_set: set[str] = set()
-    for idx, d in enumerate(image_dirs, 1):
-        stem = d.name
-        image_names.append(stem)
-        print(f"  [{idx}/{len(image_dirs)}] {stem} ... ", end="", flush=True)
-        dets: dict[str, list[dict]] = {}
-        meta: dict[str, dict] = {}
-        for stage in STAGES:
-            jsonl_path = d / f"{stage}.jsonl"
-            items = load_jsonl(jsonl_path)
-            if items:
-                dets[stage] = items
-                stages_present_set.add(stage)
-                meta[stage] = {"source": str(jsonl_path.name), "detection_count": len(items)}
+    for idx, stem in enumerate(image_names, 1):
+        print(f"  [{idx}/{len(image_names)}] {stem} ... ", end="", flush=True)
+        dets: dict[str, list[dict]] = {
+            st: stage_data[st][stem] for st in STAGES
+            if stem in stage_data.get(st, {})
+        }
+        meta: dict[str, dict] = {
+            st: {"source": f"{st}/{stem}.jsonl", "detection_count": len(v)}
+            for st, v in dets.items()
+        }
         comparisons: dict[str, dict] = {}
-        ref = dets.get("pt", [])
+        ref = dets.get("pytorch", [])
         for stage in STAGES:
-            if stage == "pt" or stage not in dets:
+            if stage == "pytorch" or stage not in dets:
                 continue
             if not ref:
-                comparisons[stage] = {"skipped": "pt reference missing"}
+                comparisons[stage] = {"skipped": "pytorch reference missing"}
                 continue
             comparisons[stage] = match_and_score(ref, dets[stage], iou_threshold=args.match_iou)
-        # 存每张图的 comparison.json（可独立审查）
-        (d / "comparison.json").write_text(
-            json.dumps({"detection_counts": {s: len(v) for s, v in dets.items()},
-                        "meta": meta, "comparisons": comparisons},
-                       indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
         per_image[stem] = {"detections": {s: len(v) for s, v in dets.items()},
                            "meta": meta, "comparisons": comparisons}
-        # 一行摘要：哪些阶段有数据 + 每个阶段 vs PT 的 Recall
         if ref:
             parts = []
             for s in ("onnx", "rknn_fp16", "rknn_int8"):
@@ -401,20 +401,20 @@ def main() -> int:
                     parts.append(f"{s} R={comparisons[s]['recall']:.2f} IoU={comparisons[s]['avg_iou']:.2f}")
             print("OK   " + " | ".join(parts))
         else:
-            print("OK   (无 PT 参考，跳过对比)")
+            print("OK   (无 PyTorch 参考，跳过对比)")
 
     stages_present = [s for s in STAGES if s in stages_present_set]
     print()
 
     # 4) 生成汇总
-    summary, md = build_summary(run_dir, image_names, per_image, stages_present, args.match_iou)
-    (run_dir / "summary.json").write_text(
+    summary, md = build_summary(output_root, image_names, per_image, stages_present, args.match_iou)
+    (output_root / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    (run_dir / "summary.md").write_text(md, encoding="utf-8")
+    (output_root / "summary.md").write_text(md, encoding="utf-8")
     print(f"✅ 报告生成完毕")
-    print(f"  📊 summary.json → {run_dir / 'summary.json'}")
-    print(f"  📝 summary.md   → {run_dir / 'summary.md'}")
+    print(f"  📊 summary.json → {output_root / 'summary.json'}")
+    print(f"  📝 summary.md   → {output_root / 'summary.md'}")
     print()
     print("【提示】重点查看 summary.md 里的 3 张表格：")
     print("  1. 全局汇总：一眼看出 C++ 链路哪个阶段掉点最重")
