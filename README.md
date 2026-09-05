@@ -1,116 +1,114 @@
 # EdgeStream
 
-EdgeStream 是一个面向 RKNN 设备的 YOLO11 推理工程，包含 C++ 推理运行时、C++ 回归/benchmark 工具，以及 Python 模型导出与转换流水线。
+EdgeStream 是运行在 RK3588 设备上的 C++17 YOLO11 推理工程。它使用同一个拆分输出模型运行 ONNX Runtime、RKNN FP16 和 RKNN INT8 三个后端，最终只产出两份报告：
 
-- C++ 推理与评测：OrangePi (aarch64，板载 `librknnrt.so` + `onnxruntime-linux-aarch64`)
-- Python 模型导出/参考生成：PC (x86_64，`rknn-toolkit2`)
+- `artifacts/accuracy_eval/summary.md`：PyTorch、ONNX、RKNN FP16、RKNN INT8 的检测结果一致性。
+- `artifacts/benchmark/summary.md`：三个 C++ 后端的 300 帧处理时延、p50/p95/p99、FPS 和系统快照。
 
-## 快速开始
+流程分为两台机器：
 
-- [构建说明](docs/BUILD.md)
-- [可重复运行与回归说明](docs/REGRESSION.md)
-- [模型、输入和设备清单](artifacts/model_manifest.json)
+- PC：导出模型并生成 PyTorch 参考结果。
+- Orange Pi：构建 C++、运行回归并生成两份报告。
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j"$(nproc)"
-```
+下文所有命令均在仓库根目录执行。
 
-依赖与构建目标说明详见 [docs/BUILD.md](docs/BUILD.md)。核心目标：`edgestream_core`（共享静态库）、`accuracy_eval`、`video_benchmark`、`edgestream`（占位）、`thread_safe_queue_test`、`rknn_init_test`。
+## 1. PC：准备模型与参考结果
 
-## 目录结构
-
-```
-EdgeStream/
-├── CMakeLists.txt                 顶层：project/options/find_package/依赖检测/add_subdirectory
-├── include/edgestream/            公共库头（按模块组织）
-│   ├── core/{file_io,timing,signal,coco_names,jsonl}.h
-│   ├── inference/{onnx_engine,rknn_engine}.h
-│   ├── yolo/{preprocess,postprocess}.h
-│   └── concurrency/thread_safe_queue.h
-├── include/rknn/                  RKNN 厂商头文件
-├── src/
-│   ├── CMakeLists.txt             聚合 edgestream_core
-│   ├── core/{file_io,timing,signal,coco_names,jsonl}.cpp
-│   ├── inference/{onnx_engine,rknn_engine}.cpp
-│   ├── yolo/{preprocess,postprocess}.cpp
-│   └── app/{main,accuracy_eval,video_benchmark}.cpp
-├── test/{thread_safe_queue_test,rknn_init_test}.cpp
-├── python/                        Python 流水线（export_onnx/convert_rknn/generate_reference/yolo_pipeline/export_and_verify_onnx）
-├── scripts/                       accuracy_benchmark.py + release_check.sh
-├── docs/                          BUILD.md / REGRESSION.md / notes/（归档的中文规划与备忘）
-├── models/ assets/ artifacts/ third_party/   模型 / 输入 / 产物 / 第三方
-```
-
-## C++ 回归与基准
-
-固定参数：640×640 letterbox、置信度 `0.25`、IoU `0.70`、COCO 80 类。
-
-### 300 帧视频 benchmark（合并为单一 `video_benchmark`）
+推荐 Python 3.10，并使用虚拟环境：
 
 ```bash
-./build/video_benchmark --backend onnx      --model models/onnx/yolo11s_640_split.onnx
-./build/video_benchmark --backend rknn-fp16 --model models/rknn/yolo11s_640_split.rknn
-./build/video_benchmark --backend rknn-int8 --model models/rknn/yolo11s_640_split_int8.rknn
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install --upgrade pip
+python3 -m pip install -r requirements-pc.txt
 ```
 
-输出写入 `--output-dir`（默认 `artifacts/onnx` 或 `artifacts/rknn`）：`<tag>_raw.jsonl`（逐帧耗时 + 阶段 breakdown + 系统快照）+ `<tag>_stats.json`（均值+标准差），`<tag>` ∈ {`onnx`, `rknn_fp16`, `rknn_int8`}。
-
-### 多图四阶段精度评测
-
-按**后端**分文件夹，固定无日期，三个脚本默认都对齐 `artifacts/accuracy_eval/`：
+安装 Rockchip 或 Orange Pi 提供的 x86_64 `rknn-toolkit2` wheel，并验证安装：
 
 ```bash
-# 阶段1 (PC)：PyTorch 参考 → artifacts/accuracy_eval/pytorch/{stem}.jsonl
-python3 python/generate_reference.py --images-dir assets/regression/test_image
-
-# 阶段2 (板)：C++ 跑 ONNX / RKNN FP16 / RKNN INT8 → artifacts/accuracy_eval/{onnx,rknn_fp16,rknn_int8}/{stem}.jsonl
-./build/accuracy_eval --images-dir assets/regression/test_image
-
-# 阶段3 (任意)：纯离线汇总报告 → artifacts/accuracy_eval/summary.{json,md}
-python3 scripts/accuracy_benchmark.py
+python3 -m pip install /path/to/rknn_toolkit2-<version>-cp310-cp310-linux_x86_64.whl
+python3 -c "from rknn.api import RKNN; print('rknn-toolkit2 OK')"
 ```
 
-每个后端独立成文件夹，可单独重跑而不影响其他后端；阶段 3 按 stem 跨四个文件夹匹配对比。完整流程、参数与报告说明见 [docs/REGRESSION.md](docs/REGRESSION.md)。固定图 ONNX 导出验证（纯 Python，隔离"ONNX 导出本身坏没坏"与 C++ 代码无关）：
-
-```bash
-# 先生成该图的 PyTorch 参考 → artifacts/accuracy_eval/pytorch/bus.jsonl
-python3 python/generate_reference.py --image assets/regression/bus.jpg
-
-# 再用 ONNX Runtime 跑同一张图，与参考对比 → artifacts/onnx_verify/
-python3 python/export_and_verify_onnx.py --model models/onnx/yolo11s_640.onnx
-# 参考路径默认按图片名自动推导；缺参考时会直接提示上面那条命令
-```
-
-## Python 模型流水线
+导出 ONNX，再生成 FP16 与 INT8 RKNN 模型：
 
 ```bash
 python3 python/export_onnx.py
-python3 python/generate_reference.py
-python3 python/export_and_verify_onnx.py --model models/onnx/yolo11s_640.onnx
-python3 python/export_and_verify_onnx.py --model models/onnx/yolo11s_640_split.onnx
 
-# RKNN FP16
-python3 python/convert_rknn.py --model models/onnx/yolo11s_640_split.onnx \
-  --output models/rknn/yolo11s_640_split.rknn --no-quantize
+python3 python/convert_rknn.py \
+  --model models/onnx/yolo11s_640_split.onnx \
+  --output models/rknn/yolo11s_640_split.rknn \
+  --no-quantize
 
-# RKNN INT8
-python3 python/convert_rknn.py --model models/onnx/yolo11s_640_split.onnx \
+python3 python/convert_rknn.py \
+  --model models/onnx/yolo11s_640_split.onnx \
   --output models/rknn/yolo11s_640_split_int8.rknn \
   --dataset corrected_data/calib.txt
 ```
 
-`python/yolo_pipeline.py` 为共享库（letterbox / 解码 / NMS / JSONL 读写 / `compare_detections` 容差比对），供 `export_and_verify_onnx.py` 等复用。
+为回归图像集生成固定的 PyTorch 参考结果：
 
-## 输入约定
+```bash
+python3 python/generate_reference.py \
+  --images-dir assets/regression/test_image
+```
 
-RKNN 输入由 C++ 显式准备，`pass_through=1`：FP16 使用 `float16/NHWC`；INT8 使用 `int8/NHWC`，`scale=0.00392157`、`zero_point=-128`；ONNX Runtime 使用 `float32/NCHW`。输入值域均为 `[0,1]`（INT8 再按量化参数转换）。完整模型文件、输出形状和设备信息见 [artifacts/model_manifest.json](artifacts/model_manifest.json)。
+进入板端前，PC 上应存在：
 
-双输出 ONNX/RKNN 模型为 `[1,4,8400] + [1,80,8400]`，仅拆分 box 与 class score 的量化范围，不改变 YOLO 语义。
+```text
+models/onnx/yolo11s_640_split.onnx
+models/rknn/yolo11s_640_split.rknn
+models/rknn/yolo11s_640_split_int8.rknn
+artifacts/accuracy_eval/pytorch/
+```
 
-## 已保存结果
+将仓库、生成的模型和 `artifacts/accuracy_eval/pytorch/` 同步到 Orange Pi；不要复制 PC 上的 `build/` 目录。
 
-- `artifacts/reference/`：PyTorch 参考结果（[fixed_image_comparison.json](artifacts/reference/fixed_image_comparison.json)）
-- `artifacts/onnx/` / `artifacts/rknn/`：固定图输出与 300 帧摘要
-- `artifacts/benchmark/`：基准清单与运行元数据（[orangepi_300f_manifest.json](artifacts/benchmark/orangepi_300f_manifest.json)、[performance_analysis.md](artifacts/benchmark/performance_analysis.md)）
-- `artifacts/accuracy_eval/`：四阶段精度流水线（`pytorch/` / `onnx/` / `rknn_fp16/` / `rknn_int8/` 各放对应后端的 `{stem}.jsonl`，外加 `summary.{json,md}`）
+## 2. Orange Pi：构建并运行
+
+板端需要 CMake、C++17 编译器、OpenCV 开发包、`nlohmann-json3-dev`、`third_party/` 下匹配 aarch64 的 ONNX Runtime，以及 `/usr/lib/librknnrt.so`。
+
+在 Debian/Ubuntu 系统中安装通用构建依赖：
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake libopencv-dev nlohmann-json3-dev
+```
+
+运行完整板端回归：
+
+```bash
+bash scripts/release_check.sh
+```
+
+该命令会配置和构建工程、执行 CTest、重新生成 C++ 精度输出、运行三个 300 帧 benchmark，并写入：
+
+```text
+artifacts/accuracy_eval/summary.md
+artifacts/benchmark/summary.md
+```
+
+`release_check.sh` 会保留 PyTorch 参考结果，只清理和重建 C++ 后端输出。因此，后端失败不会被旧的成功结果掩盖。
+
+## 报告含义
+
+`accuracy_eval/summary.md` 比较类别、数量、置信度和检测框 IoU。只有在模型、图像集、预处理参数、置信度阈值和 IoU 阈值保持不变时，前后两次精度报告才可直接比较。
+
+`benchmark/summary.md` 汇总 ONNX、RKNN FP16 和 RKNN INT8。`Processing FPS` 与帧时延从帧离开队列后开始计算，不包含视频解码和队列等待；逐帧 JSONL 与各后端 stats JSON 保留在报告旁边，仅在指标变化时用于排查。
+
+## 目录说明
+
+```text
+include/        公共 C++ 头文件
+src/            运行时、推理后端、前后处理和应用入口
+test/           单元测试
+python/         模型导出、转换和 PyTorch 参考生成
+scripts/        精度报告、性能报告和板端回归入口
+assets/         回归图像与 benchmark 视频
+corrected_data/ INT8 校准集
+models/         PyTorch 源模型与生成的 ONNX/RKNN 模型
+third_party/    按架构提供的 ONNX Runtime
+artifacts/      生成的参考结果、原始数据和报告
+```
+
+单独执行各步骤或排查问题时，见 [构建说明](docs/BUILD.md) 和 [回归说明](docs/REGRESSION.md)。

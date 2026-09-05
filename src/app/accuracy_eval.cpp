@@ -48,7 +48,7 @@ namespace fs = std::filesystem;
 // ============================================================================
 // ONNX 推理 —— 引擎外部传入，避免每次加载模型
 // ============================================================================
-static void onnx_infer(
+static bool onnx_infer(
     OnnxEngine& engine,
     const cv::Mat& image,
     const std::string& save_path,
@@ -74,15 +74,17 @@ static void onnx_infer(
 
     if (save_detections_to_jsonl(detections, save_path)) {
         std::cout << "    onnx    → " << detections.size() << " dets";
+        return true;
     } else {
         std::cout << "    onnx    → ❌ 保存失败";
+        return false;
     }
 }
 
 // ============================================================================
 // RKNN 推理 —— FP16 / INT8 由 quantization 参数区分
 // ============================================================================
-static void rknn_infer(
+static bool rknn_infer(
     RknnEngine& engine,
     const cv::Mat& image,
     const std::string& save_path,
@@ -93,7 +95,7 @@ static void rknn_infer(
     uint32_t in_h = 0, in_w = 0, ch = 0;
     if (!engine.get_input_hw_c(0, in_h, in_w, ch)) {
         std::cerr << "❌ 不支持的 RKNN 输入排布" << std::endl;
-        return;
+        return false;
     }
 
     PreprocessParameter pp = get_preprocess_parameter(image.cols, image.rows, in_w, in_h);
@@ -113,7 +115,7 @@ static void rknn_infer(
     }
     if (run_ret != 0) {
         std::cerr << " ❌ RKNN 推理失败 ret=" << run_ret << std::endl;
-        return;
+        return false;
     }
 
     // split 模型 outputs 合并后 shape [1, 84, 8400]，此处直接给 (84, 8400) 让 postprocess 处理
@@ -125,8 +127,10 @@ static void rknn_infer(
     const char* tag = quantization ? "rknn_i8" : "rknn_fp";
     if (save_detections_to_jsonl(detections, save_path)) {
         std::cout << "    " << tag << " → " << detections.size() << " dets";
+        return true;
     } else {
         std::cout << "    " << tag << " → ❌ 保存失败";
+        return false;
     }
 }
 
@@ -315,24 +319,29 @@ int main(int argc, char* argv[])
         bool stage_ok = true;
         if (args.run_onnx) {
             std::string out = onnx_dir + "/" + stem + ".jsonl";
-            onnx_infer(*onnx_engine, image, out, args.conf, args.iou);
+            stage_ok &= onnx_infer(*onnx_engine, image, out, args.conf, args.iou);
             std::cout << std::endl;
         }
         if (args.run_rknn) {
             std::string out_fp = rknn_fp_dir + "/" + stem + ".jsonl";
-            rknn_infer(*rknn_fp_engine, image, out_fp, /*quant=*/false, args.conf, args.iou);
+            stage_ok &= rknn_infer(*rknn_fp_engine, image, out_fp, /*quant=*/false, args.conf, args.iou);
             std::cout << std::endl;
             std::string out_i8 = rknn_i8_dir + "/" + stem + ".jsonl";
-            rknn_infer(*rknn_i8_engine, image, out_i8, /*quant=*/true,  args.conf, 0.6);
+            stage_ok &= rknn_infer(*rknn_i8_engine, image, out_i8, /*quant=*/true, args.conf, args.iou);
             std::cout << std::endl;
         }
-        if (stage_ok) ++ok_cnt;
+        if (stage_ok) {
+            ++ok_cnt;
+        } else {
+            std::cerr << "  ❌ 后端输出失败" << std::endl;
+        }
     }
 
     std::cout << "\n========================================" << std::endl;
-    std::cout << "✅ 全部完成 " << ok_cnt << "/" << images.size() << " 张" << std::endl;
+    std::cout << (ok_cnt == static_cast<int>(images.size()) ? "✅" : "❌")
+              << " 完成 " << ok_cnt << "/" << images.size() << " 张" << std::endl;
     std::cout << "📁 输出根目录: " << args.output_root << std::endl;
     std::cout << "▶  下一步跑阶段 3:" << std::endl;
     std::cout << "   python3 scripts/accuracy_benchmark.py" << std::endl;
-    return 0;
+    return ok_cnt == static_cast<int>(images.size()) ? 0 : 1;
 }

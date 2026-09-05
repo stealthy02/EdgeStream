@@ -323,6 +323,9 @@ def main() -> int:
                    help="阶段 1+2 共同产出的根目录 (含 pytorch/onnx/rknn_fp16/rknn_int8 子目录)")
     p.add_argument("--match-iou", type=float, default=0.5,
                    help="参考框与预测框匹配所需最小 IoU (默认 0.5)")
+    p.add_argument("--require-stages", nargs="*", default=[],
+                   choices=[s for s in STAGES if s != "pytorch"],
+                   help="要求这些 C++ 后端与 PyTorch 参考拥有完全相同的图片集合")
     args = p.parse_args()
 
     output_root: Path = args.output_root
@@ -339,13 +342,30 @@ def main() -> int:
             for jp in sorted(stage_dir.iterdir()):
                 if jp.is_file() and jp.suffix == ".jsonl":
                     items = load_jsonl(jp)
-                    if items:
-                        stem_map[jp.stem] = items
-                        stages_present_set.add(stage)
+                    # Empty JSONL is a valid inference result: it means no
+                    # detections, not that this backend skipped the image.
+                    stem_map[jp.stem] = items
+                    stages_present_set.add(stage)
         stage_data[stage] = stem_map
 
     if not stages_present_set:
         raise RuntimeError(f"output_root 下没找到任何 {STAGES} 子目录的 .jsonl：{output_root}")
+
+    if args.require_stages:
+        reference_stems = set(stage_data["pytorch"])
+        if not reference_stems:
+            raise RuntimeError("严格模式需要 pytorch 参考结果")
+        for stage in args.require_stages:
+            actual_stems = set(stage_data[stage])
+            missing = sorted(reference_stems - actual_stems)
+            unexpected = sorted(actual_stems - reference_stems)
+            if missing or unexpected:
+                detail = []
+                if missing:
+                    detail.append(f"缺少 {len(missing)} 张")
+                if unexpected:
+                    detail.append(f"多出 {len(unexpected)} 张")
+                raise RuntimeError(f"{stage} 与 pytorch 图片集合不一致（{'，'.join(detail)}）")
 
     # 2) 图片集合：pytorch 参考 manifest 定顺序；其余 stage 的 stem 取并集追加
     manifest_path = output_root / "pytorch" / "manifest.json"

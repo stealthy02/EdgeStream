@@ -8,7 +8,7 @@
 //
 // 输出（写入 --output-dir，默认按后端 artifacts/onnx | artifacts/rknn）：
 //   <tag>_raw.jsonl    逐帧耗时 + 各阶段 breakdown + system 快照
-//   <tag>_stats.json   高层 prep/infer/post/total 均值+标准差 + 可用阶段 breakdown + system 均值+标准差
+//   <tag>_stats.json   高层 prep/infer/post/total 的均值、标准差、p50/p95/p99、处理 FPS
 //   tag ∈ {onnx, rknn_fp16, rknn_int8}
 //
 // 阶段 breakdown 可用性：INT8 有预处理阶段；RKNN(FP16/INT8) 有推理阶段；后处理阶段所有后端都有。
@@ -218,7 +218,9 @@ using InferFn = std::function<int(const cv::Mat& frame, FrameTimings& t)>;
 // 统计落盘
 // ============================================================================
 static void write_results(const BenchmarkStats& s,
-                          const std::string& output_dir, const std::string& tag)
+                          const std::string& output_dir, const std::string& tag,
+                          const std::string& model, const std::string& video,
+                          float conf, float iou)
 {
     mkdir_if_not_exist(output_dir);
     const std::string raw_path   = output_dir + "/" + tag + "_raw.jsonl";
@@ -277,25 +279,33 @@ static void write_results(const BenchmarkStats& s,
     const double avg_post  = s.total_post / s.frame_cnt;
     const double avg_total = (s.total_prep + s.total_infer + s.total_post) / s.frame_cnt;
 
+    const double processing_fps = avg_total > 0.0 ? 1000.0 / avg_total : 0.0;
+    const auto latency_summary = [](const std::vector<double>& values, double mean) {
+        return json{{"mean", mean},
+                    {"std", calc_std(values, mean)},
+                    {"p50", percentile_of(values, 0.50)},
+                    {"p95", percentile_of(values, 0.95)},
+                    {"p99", percentile_of(values, 0.99)}};
+    };
+
     std::cout << "\n===== Stat over " << s.frame_cnt << " frames =====" << std::endl;
     std::cout << std::fixed << std::setprecision(3)
-              << "Avg Prep: " << avg_prep << " ms | Std Prep: " << calc_std(s.prep, avg_prep) << " ms\n"
-              << "Avg Infer: " << avg_infer << " ms | Std Infer: " << calc_std(s.infer, avg_infer) << " ms\n"
-              << "Avg Post: " << avg_post << " ms | Std Post: " << calc_std(s.post, avg_post) << " ms\n"
-              << "Avg FrameTotal: " << avg_total << " ms | Std FrameTotal: " << calc_std(s.total, avg_total) << " ms"
-              << std::endl;
+              << "Frame total: mean=" << avg_total << " ms"
+              << " p50=" << percentile_of(s.total, 0.50) << " ms"
+              << " p95=" << percentile_of(s.total, 0.95) << " ms"
+              << " p99=" << percentile_of(s.total, 0.99) << " ms\n"
+              << "Processing FPS: " << processing_fps << std::endl;
 
     json stats;
     stats["frame_count"] = s.frame_cnt;
     stats["unit"] = "ms";
-    stats["preprocess"]["mean"] = avg_prep;
-    stats["preprocess"]["std"]  = calc_std(s.prep, avg_prep);
-    stats["infer"]["mean"] = avg_infer;
-    stats["infer"]["std"]  = calc_std(s.infer, avg_infer);
-    stats["postprocess"]["mean"] = avg_post;
-    stats["postprocess"]["std"]  = calc_std(s.post, avg_post);
-    stats["frame_total"]["mean"] = avg_total;
-    stats["frame_total"]["std"]  = calc_std(s.total, avg_total);
+    stats["run"] = {{"backend", tag}, {"model", model}, {"video", video},
+                    {"confidence_threshold", conf}, {"iou_threshold", iou}};
+    stats["processing_fps"] = processing_fps;
+    stats["preprocess"] = latency_summary(s.prep, avg_prep);
+    stats["infer"] = latency_summary(s.infer, avg_infer);
+    stats["postprocess"] = latency_summary(s.post, avg_post);
+    stats["frame_total"] = latency_summary(s.total, avg_total);
 
     auto save_breakdown = [&stats](
         const char* category, const char* name, const std::vector<double>& values) {
@@ -476,7 +486,8 @@ static void run_video_benchmark(InferFn infer, const Args& args,
         std::cout << "\n[INFO] Program exit gracefully" << std::endl;
         return;
     }
-    write_results(stats, args.output_dir, args.backend_tag);
+    write_results(stats, args.output_dir, args.backend_tag, args.model, args.video,
+                  args.conf, args.iou);
     std::cout << "\n[INFO] Program exit gracefully" << std::endl;
 }
 

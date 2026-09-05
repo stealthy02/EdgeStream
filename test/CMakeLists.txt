@@ -6,6 +6,10 @@ add_executable(thread_safe_queue_test thread_safe_queue_test.cpp)
 target_link_libraries(thread_safe_queue_test PRIVATE edgestream_deps Threads::Threads)
 add_test(NAME thread_safe_queue_regression COMMAND thread_safe_queue_test)
 
+add_executable(timing_test timing_test.cpp ${PROJECT_SOURCE_DIR}/src/core/timing.cpp)
+target_link_libraries(timing_test PRIVATE edgestream_deps)
+add_test(NAME timing_regression COMMAND timing_test)
+
 # rknn_init_test：依赖 librknnrt.so，仅板端可构建，不进 ctest（需手动准备 .rknn 模型）。
 if(HAS_RKNN_RT)
     add_executable(rknn_init_test rknn_init_test.cpp)
